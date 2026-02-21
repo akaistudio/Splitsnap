@@ -108,14 +108,8 @@ def generate_otp():
     return ''.join([str(secrets.randbelow(10)) for _ in range(6)])
 
 def send_otp_email(email, code, purpose='login'):
-    smtp_host = os.environ.get('SMTP_HOST', '')
-    smtp_port = int(os.environ.get('SMTP_PORT', '587'))
-    smtp_user = os.environ.get('SMTP_USER', '')
-    smtp_pass = os.environ.get('SMTP_PASS', '')
-    smtp_from = os.environ.get('SMTP_FROM', smtp_user)
-    if not smtp_host or not smtp_user:
-        print(f"⚠️ SMTP not configured. OTP for {email}: {code}")
-        return True
+    resend_key = os.environ.get('RESEND_API_KEY', '')
+    from_email = os.environ.get('SMTP_FROM', 'onboarding@resend.dev')
     purpose_text = 'login' if purpose == 'login' else 'verification'
     subject = f"Your SplitSnap {purpose_text} code: {code}"
     html = f"""<div style="font-family:sans-serif;max-width:400px;margin:0 auto;padding:24px">
@@ -126,34 +120,31 @@ def send_otp_email(email, code, purpose='login'):
         <p style="color:#999;font-size:12px">This code expires in 5 minutes. Do not share it.</p>
         <p style="color:#999;font-size:11px;margin-top:20px">Part of <a href="https://snapsuite.up.railway.app" style="color:#10b981">SnapSuite</a></p>
     </div>"""
-    msg = MIMEMultipart('alternative')
-    msg['Subject'] = subject
-    msg['From'] = smtp_from
-    msg['To'] = email
-    msg.attach(MIMEText(html, 'html'))
-    # Try TLS on 587 first, then SSL on 465
-    try:
-        print(f"📤 Connecting to {smtp_host}:{smtp_port}...")
-        server = smtplib.SMTP(smtp_host, smtp_port, timeout=10)
-        server.starttls()
-        server.login(smtp_user, smtp_pass)
-        server.send_message(msg)
-        server.quit()
-        print(f"✅ OTP email sent to {email}")
+
+    if not resend_key:
+        print(f"⚠️ RESEND_API_KEY not set. OTP for {email}: {code}")
         return True
-    except Exception as e1:
-        print(f"⚠️ TLS failed: {e1}, trying SSL on 465...")
-        try:
-            server = smtplib.SMTP_SSL(smtp_host, 465, timeout=10)
-            server.login(smtp_user, smtp_pass)
-            server.send_message(msg)
-            server.quit()
-            print(f"✅ OTP email sent to {email} (SSL)")
+
+    import requests as http_requests
+    try:
+        print(f"📤 Sending OTP to {email} via Resend...")
+        r = http_requests.post('https://api.resend.com/emails', json={
+            'from': from_email,
+            'to': [email],
+            'subject': subject,
+            'html': html
+        }, headers={'Authorization': f'Bearer {resend_key}'}, timeout=10)
+        if r.status_code == 200:
+            print(f"✅ OTP email sent to {email}")
             return True
-        except Exception as e2:
-            print(f"❌ Email send failed. TLS: {e1} | SSL: {e2}")
+        else:
+            print(f"❌ Resend error {r.status_code}: {r.text}")
             print(f"💡 OTP for {email}: {code}")
-            return True  # Still return true so user isn't blocked
+            return True
+    except Exception as e:
+        print(f"❌ Email failed: {e}")
+        print(f"💡 OTP for {email}: {code}")
+        return True
 
 def login_required(f):
     @wraps(f)
