@@ -67,6 +67,8 @@ def init_db():
     migrations = [
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_superadmin BOOLEAN DEFAULT FALSE",
         "UPDATE users SET is_superadmin = TRUE WHERE id = (SELECT MIN(id) FROM users)",
+        "ALTER TABLE users ALTER COLUMN password_hash SET DEFAULT ''",
+        "ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL",
     ]
     for m in migrations:
         try: cur.execute(m)
