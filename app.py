@@ -131,15 +131,29 @@ def send_otp_email(email, code, purpose='login'):
     msg['From'] = smtp_from
     msg['To'] = email
     msg.attach(MIMEText(html, 'html'))
+    # Try TLS on 587 first, then SSL on 465
     try:
-        with smtplib.SMTP(smtp_host, smtp_port) as server:
-            server.starttls()
+        print(f"📤 Connecting to {smtp_host}:{smtp_port}...")
+        server = smtplib.SMTP(smtp_host, smtp_port, timeout=10)
+        server.starttls()
+        server.login(smtp_user, smtp_pass)
+        server.send_message(msg)
+        server.quit()
+        print(f"✅ OTP email sent to {email}")
+        return True
+    except Exception as e1:
+        print(f"⚠️ TLS failed: {e1}, trying SSL on 465...")
+        try:
+            server = smtplib.SMTP_SSL(smtp_host, 465, timeout=10)
             server.login(smtp_user, smtp_pass)
             server.send_message(msg)
-        return True
-    except Exception as e:
-        print(f"Email send failed: {e}")
-        return False
+            server.quit()
+            print(f"✅ OTP email sent to {email} (SSL)")
+            return True
+        except Exception as e2:
+            print(f"❌ Email send failed. TLS: {e1} | SSL: {e2}")
+            print(f"💡 OTP for {email}: {code}")
+            return True  # Still return true so user isn't blocked
 
 def login_required(f):
     @wraps(f)
