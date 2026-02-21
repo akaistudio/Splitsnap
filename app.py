@@ -32,13 +32,15 @@ UPLOAD_DIR = Path('/tmp/splitsnap_uploads'); UPLOAD_DIR.mkdir(exist_ok=True)
 def get_db():
     url = os.environ.get('DATABASE_URL')
     if not url: return None
-    conn = psycopg2.connect(url, cursor_factory=psycopg2.extras.RealDictCursor)
+    conn = psycopg2.connect(url, cursor_factory=psycopg2.extras.RealDictCursor, connect_timeout=5)
     conn.autocommit = True
     return conn
 
 def init_db():
     conn = get_db()
-    if not conn: return
+    if not conn:
+        print("⚠️ DATABASE_URL not set — skipping DB init")
+        return
     cur = conn.cursor()
     cur.execute("""CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY, email TEXT UNIQUE NOT NULL, password_hash TEXT DEFAULT '',
@@ -75,8 +77,11 @@ def init_db():
         except: conn.rollback()
     conn.close()
 
-try: init_db()
-except: pass
+try:
+    init_db()
+    print("✅ Database initialized")
+except Exception as e:
+    print(f"⚠️ Database init failed: {e}")
 
 # ── Auth Helpers ───────────────────────────────────────────────
 def hash_password(pw):
