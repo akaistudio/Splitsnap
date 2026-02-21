@@ -1,5 +1,7 @@
 """SplitSnap — AI-powered group expense splitting"""
 import os, json, uuid, secrets, base64, smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from datetime import datetime, timedelta
 from pathlib import Path
 from functools import wraps
@@ -39,7 +41,7 @@ def init_db():
     if not conn: return
     cur = conn.cursor()
     cur.execute("""CREATE TABLE IF NOT EXISTS users (
-        id SERIAL PRIMARY KEY, email TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL,
+        id SERIAL PRIMARY KEY, email TEXT UNIQUE NOT NULL, password_hash TEXT DEFAULT '',
         name TEXT DEFAULT '', currency TEXT DEFAULT 'EUR',
         is_superadmin BOOLEAN DEFAULT FALSE, created_at TIMESTAMP DEFAULT NOW())""")
     cur.execute("""CREATE TABLE IF NOT EXISTS otp_codes (
@@ -92,18 +94,31 @@ def send_otp_email(email, code, purpose='login'):
     smtp_pass = os.environ.get('SMTP_PASS', '')
     smtp_from = os.environ.get('SMTP_FROM', smtp_user)
     if not smtp_host or not smtp_user:
-        print(f"OTP for {email}: {code}")
+        print(f"⚠️ SMTP not configured. OTP for {email}: {code}")
         return True
-    subject = f"SplitSnap {'Login' if purpose=='login' else 'Verification'} Code: {code}"
-    body = f"""Your SplitSnap verification code is:\n\n    {code}\n\nThis code expires in 5 minutes.\nIf you didn't request this, please ignore this email."""
-    msg = f"From: {smtp_from}\r\nTo: {email}\r\nSubject: {subject}\r\nContent-Type: text/plain\r\n\r\n{body}"
+    purpose_text = 'login' if purpose == 'login' else 'verification'
+    subject = f"Your SplitSnap {purpose_text} code: {code}"
+    html = f"""<div style="font-family:sans-serif;max-width:400px;margin:0 auto;padding:24px">
+        <h2 style="color:#10b981">✂️ SplitSnap</h2>
+        <p style="color:#666;font-size:14px">Your {purpose_text} code is:</p>
+        <div style="font-size:36px;font-weight:800;letter-spacing:8px;color:#1a1a2e;text-align:center;
+                    padding:20px;background:#f0fdf4;border-radius:12px;margin:16px 0">{code}</div>
+        <p style="color:#999;font-size:12px">This code expires in 5 minutes. Do not share it.</p>
+        <p style="color:#999;font-size:11px;margin-top:20px">Part of <a href="https://snapsuite.up.railway.app" style="color:#10b981">SnapSuite</a></p>
+    </div>"""
+    msg = MIMEMultipart('alternative')
+    msg['Subject'] = subject
+    msg['From'] = smtp_from
+    msg['To'] = email
+    msg.attach(MIMEText(html, 'html'))
     try:
         with smtplib.SMTP(smtp_host, smtp_port) as server:
-            server.starttls(); server.login(smtp_user, smtp_pass)
-            server.sendmail(smtp_from, email, msg)
+            server.starttls()
+            server.login(smtp_user, smtp_pass)
+            server.send_message(msg)
         return True
     except Exception as e:
-        print(f"SMTP error: {e}")
+        print(f"Email send failed: {e}")
         return False
 
 def login_required(f):
@@ -275,14 +290,12 @@ def verify_otp():
 def api_register():
     data = request.get_json()
     email = (data.get('email') or '').strip().lower()
-    password = data.get('password', '')
     name = (data.get('name') or '').strip()
     currency = data.get('currency', 'EUR')
     code = (data.get('code') or '').strip()
     if not email or not code or len(code) != 6:
         return jsonify({"error": "Verification code required"}), 400
     if not name: return jsonify({"error": "Name is required"}), 400
-    if len(password) < 8: return jsonify({"error": "Password must be at least 8 characters"}), 400
     conn = get_db(); cur = conn.cursor()
     # Verify OTP
     cur.execute("""SELECT * FROM otp_codes WHERE email=%s AND purpose='register' AND used=FALSE AND expires_at > NOW()
@@ -300,8 +313,8 @@ def api_register():
     if cur.fetchone(): conn.close(); return jsonify({"error": "Email already registered"}), 409
     cur.execute("SELECT COUNT(*) as cnt FROM users"); count = cur.fetchone()['cnt']
     is_admin = (count == 0)
-    cur.execute("INSERT INTO users (email, password_hash, name, currency, is_superadmin) VALUES (%s,%s,%s,%s,%s) RETURNING id",
-                (email, hash_password(password), name, currency, is_admin))
+    cur.execute("INSERT INTO users (email, name, currency, is_superadmin) VALUES (%s,%s,%s,%s) RETURNING id",
+                (email, name, currency, is_admin))
     user_id = cur.fetchone()['id']; conn.close()
     session.update({'user_id': user_id, 'user_name': name}); session.permanent = True
     return jsonify({"success": True, "redirect": "/app"})
@@ -602,7 +615,6 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 <h2>Create Account</h2><p class="sub">We'll send a 6-digit code to verify your email</p>
 <div class="fg"><label>Your Name</label><input type="text" id="regName" required placeholder="Your name"></div>
 <div class="fg"><label>Email</label><input type="email" id="regEmail" required placeholder="you@email.com"></div>
-<div class="fg"><label>Password</label><input type="password" id="regPassword" required minlength="8" placeholder="Min 8 characters"></div>
 <div class="fg"><label>Default Currency</label><select id="regCurrency"><option value="EUR" selected>🇪🇺 EUR</option><option value="USD">🇺🇸 USD</option><option value="GBP">🇬🇧 GBP</option><option value="INR">🇮🇳 INR</option><option value="CAD">🇨🇦 CAD</option><option value="MYR">🇲🇾 MYR</option></select></div>
 <button class="btn" id="regSendBtn" onclick="sendRegOTP()">Send Verification Code</button>
 <div class="switch">Already have an account? <a href="/login">Sign in</a></div>
@@ -642,7 +654,7 @@ function startTimer(cntId,timerId,resendId,sec){let r=sec;const el=document.getE
 let loginEmailVal='',regData={};
 async function sendLoginOTP(){const email=document.getElementById('loginEmail').value.trim().toLowerCase();if(!email){showAlert('Enter email','error');return;}loginEmailVal=email;const btn=document.getElementById('loginSendBtn');btn.disabled=true;btn.innerHTML='<span class="spinner"></span>Sending...';try{const r=await fetch('/api/auth/send-otp',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,purpose:'login'})});const d=await r.json();if(d.success){document.getElementById('loginEmailDisplay').textContent=email;showStep('loginStep2');showAlert('Code sent to '+email,'success');startTimer('loginCountdown','loginTimer','loginResend',60);setTimeout(()=>document.querySelector('#loginStep2 .otp-digit').focus(),100);}else{showAlert(d.error||'Failed','error');}}catch(e){showAlert('Connection error','error');}btn.disabled=false;btn.innerHTML='Send Login Code';}
 async function verifyLoginOTP(){const code=getOTP('loginOtpRow');if(code.length!==6){showAlert('Enter the full 6-digit code','error');return;}const btn=document.getElementById('loginVerifyBtn');btn.disabled=true;btn.innerHTML='<span class="spinner"></span>Verifying...';try{const r=await fetch('/api/auth/verify-otp',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:loginEmailVal,code,purpose:'login'})});const d=await r.json();if(d.success){window.location.href=d.redirect||'/app';}else{showAlert(d.error||'Invalid code','error');clearOTP('loginOtpRow');}}catch(e){showAlert('Connection error','error');}btn.disabled=false;btn.innerHTML='Sign In';}
-async function sendRegOTP(){const name=document.getElementById('regName').value.trim(),email=document.getElementById('regEmail').value.trim().toLowerCase(),pw=document.getElementById('regPassword').value,cur=document.getElementById('regCurrency').value;if(!name){showAlert('Enter name','error');return;}if(!email){showAlert('Enter email','error');return;}if(pw.length<8){showAlert('Min 8 characters','error');return;}regData={name,email,password:pw,currency:cur};const btn=document.getElementById('regSendBtn');btn.disabled=true;btn.innerHTML='<span class="spinner"></span>Sending...';try{const r=await fetch('/api/auth/send-otp',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,purpose:'register'})});const d=await r.json();if(d.success){document.getElementById('regEmailDisplay').textContent=email;showStep('regStep2');showAlert('Code sent to '+email,'success');startTimer('regCountdown','regTimer','regResend',60);setTimeout(()=>document.querySelector('#regStep2 .otp-digit').focus(),100);}else{showAlert(d.error||'Failed','error');}}catch(e){showAlert('Connection error','error');}btn.disabled=false;btn.innerHTML='Send Verification Code';}
+async function sendRegOTP(){const name=document.getElementById('regName').value.trim(),email=document.getElementById('regEmail').value.trim().toLowerCase(),cur=document.getElementById('regCurrency').value;if(!name){showAlert('Enter name','error');return;}if(!email){showAlert('Enter email','error');return;}regData={name,email,currency:cur};const btn=document.getElementById('regSendBtn');btn.disabled=true;btn.innerHTML='<span class="spinner"></span>Sending...';try{const r=await fetch('/api/auth/send-otp',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,purpose:'register'})});const d=await r.json();if(d.success){document.getElementById('regEmailDisplay').textContent=email;showStep('regStep2');showAlert('Code sent to '+email,'success');startTimer('regCountdown','regTimer','regResend',60);setTimeout(()=>document.querySelector('#regStep2 .otp-digit').focus(),100);}else{showAlert(d.error||'Failed','error');}}catch(e){showAlert('Connection error','error');}btn.disabled=false;btn.innerHTML='Send Verification Code';}
 async function verifyRegOTP(){const code=getOTP('regOtpRow');if(code.length!==6){showAlert('Enter the full 6-digit code','error');return;}const btn=document.getElementById('regVerifyBtn');btn.disabled=true;btn.innerHTML='<span class="spinner"></span>Creating...';try{const r=await fetch('/api/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...regData,code})});const d=await r.json();if(d.success){window.location.href=d.redirect||'/app';}else{showAlert(d.error||'Failed','error');clearOTP('regOtpRow');}}catch(e){showAlert('Connection error','error');}btn.disabled=false;btn.innerHTML='Create Account';}
 </script></body></html>"""
 
