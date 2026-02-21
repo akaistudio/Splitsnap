@@ -25,6 +25,14 @@ app.secret_key = os.environ.get('SECRET_KEY', secrets.token_hex(32))
 app.permanent_session_lifetime = timedelta(days=30)
 app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Lax')
 
+# Force print to flush immediately (for Railway logs)
+import sys
+sys.stdout.reconfigure(line_buffering=True)
+
+@app.route('/health')
+def health():
+    return 'ok'
+
 MODEL = os.environ.get('ANTHROPIC_MODEL', 'claude-sonnet-4-20250514')
 UPLOAD_DIR = Path('/tmp/splitsnap_uploads'); UPLOAD_DIR.mkdir(exist_ok=True)
 
@@ -237,6 +245,7 @@ def send_otp():
     data = request.get_json()
     email = (data.get('email') or '').strip().lower()
     purpose = data.get('purpose', 'login')
+    print(f"📧 OTP request: {email} ({purpose})")
     if not email or '@' not in email:
         return jsonify({"error": "Valid email required"}), 400
     conn = get_db()
