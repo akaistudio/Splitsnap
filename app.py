@@ -31,7 +31,12 @@ UPLOAD_DIR = Path('/tmp/splitsnap_uploads'); UPLOAD_DIR.mkdir(exist_ok=True)
 # ── Database ───────────────────────────────────────────────────
 def get_db():
     url = os.environ.get('DATABASE_URL')
-    if not url: return None
+    if not url:
+        print("⚠️ No DATABASE_URL set")
+        return None
+    # Railway sometimes gives postgres:// but psycopg2 needs postgresql://
+    if url.startswith('postgres://'):
+        url = url.replace('postgres://', 'postgresql://', 1)
     conn = psycopg2.connect(url, cursor_factory=psycopg2.extras.RealDictCursor, connect_timeout=5)
     conn.autocommit = True
     return conn
