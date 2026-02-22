@@ -88,6 +88,10 @@ def init_db():
         "UPDATE users SET is_superadmin = TRUE WHERE id = (SELECT MIN(id) FROM users)",
         "ALTER TABLE users ALTER COLUMN password_hash SET DEFAULT ''",
         "ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL",
+        """CREATE TABLE IF NOT EXISTS settled_payments (
+            id SERIAL PRIMARY KEY, trip_id VARCHAR(36) REFERENCES trips(id) ON DELETE CASCADE,
+            from_member TEXT NOT NULL, to_member TEXT NOT NULL, amount NUMERIC(12,2),
+            settled_at TIMESTAMP DEFAULT NOW())""",
     ]
     for m in migrations:
         try: cur.execute(m)
@@ -433,8 +437,11 @@ def get_trip_expenses(trip_id):
         if debtors[di][1] < 0.01: di += 1
         if creditors[ci][1] < 0.01: ci += 1
     # Get settled payments
-    cur.execute("SELECT from_member,to_member,amount FROM settled_payments WHERE trip_id=%s", (trip_id,))
-    settled = [{"from": s['from_member'], "to": s['to_member'], "amount": float(s['amount'])} for s in cur.fetchall()]
+    try:
+        cur.execute("SELECT from_member,to_member,amount FROM settled_payments WHERE trip_id=%s", (trip_id,))
+        settled = [{"from": s['from_member'], "to": s['to_member'], "amount": float(s['amount'])} for s in cur.fetchall()]
+    except Exception:
+        settled = []
     conn.close()
     return jsonify({
         "trip": {**dict(trip), 'created_at': str(trip['created_at'])},
@@ -903,7 +910,10 @@ function backToList(){document.getElementById('tripDetail').classList.add('hidde
 
 async function openTrip(id){
   currentTrip=id;document.getElementById('tripList').classList.add('hidden');document.querySelector('[onclick="showNewTrip()"]').style.display='none';document.getElementById('tripDetail').classList.remove('hidden');
-  const r=await fetch('/api/trips/'+id+'/expenses');tripData=await r.json();
+  try{
+  const r=await fetch('/api/trips/'+id+'/expenses');
+  if(!r.ok){document.getElementById('settlementsList').innerHTML='<div style="color:var(--red)">Failed to load trip</div>';return;}
+  tripData=await r.json();
   document.getElementById('detailName').textContent='✈️ '+tripData.trip.name+' ('+tripData.trip.currency+')';
   const total=tripData.expenses.reduce((s,e)=>s+e.amount_base,0);
   document.getElementById('detailTotal').textContent=tripData.trip.currency+' '+total.toFixed(2);
@@ -940,6 +950,7 @@ async function openTrip(id){
   const el=document.getElementById('expenseList');
   if(!tripData.expenses.length){el.innerHTML='<div style="text-align:center;padding:20px;color:var(--text2);font-size:13px">No expenses yet</div>';}
   else{el.innerHTML=tripData.expenses.map(e=>'<div class="card" style="padding:14px;margin-bottom:8px"><div style="display:flex;justify-content:space-between;align-items:flex-start"><div><div style="font-weight:600;font-size:14px">'+e.description+'</div><div style="font-size:12px;color:var(--text2);margin-top:2px">Paid by <strong>'+e.paid_by+'</strong>'+(e.date?' · '+e.date:'')+(e.currency!==tripData.trip.currency?' · '+e.currency+' '+e.amount.toFixed(2):'')+'</div></div><div style="text-align:right"><div style="font-weight:700;color:var(--accent2)">'+tripData.trip.currency+' '+e.amount_base.toFixed(2)+'</div><button class="btn btn-danger btn-sm" style="margin-top:6px;padding:4px 8px;font-size:10px" onclick="deleteExpense(\\''+e.id+'\\')">✕</button></div></div></div>').join('');}
+  }catch(err){console.error('openTrip error:',err);document.getElementById('settlementsList').innerHTML='<div style="color:var(--red);font-size:13px">Error loading trip details</div>';}
 }
 
 async function addExpense(){
