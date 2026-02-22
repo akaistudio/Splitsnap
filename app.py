@@ -92,10 +92,11 @@ def init_db():
             id SERIAL PRIMARY KEY, trip_id VARCHAR(36) REFERENCES trips(id) ON DELETE CASCADE,
             from_member TEXT NOT NULL, to_member TEXT NOT NULL, amount NUMERIC(12,2),
             settled_at TIMESTAMP DEFAULT NOW())""",
+        "ALTER TABLE trips ADD COLUMN IF NOT EXISTS settled BOOLEAN DEFAULT FALSE",
     ]
     for m in migrations:
         try: cur.execute(m)
-        except: conn.rollback()
+        except Exception as me: print(f"Migration note: {me}")
     conn.close()
 
 try:
@@ -357,18 +358,23 @@ def api_register():
 @app.route('/api/trips', methods=['GET'])
 @login_required
 def get_trips():
-    conn = get_db(); cur = conn.cursor()
-    cur.execute("SELECT * FROM trips WHERE created_by=%s ORDER BY created_at DESC", (session['user_id'],))
-    trips = cur.fetchall()
-    for t in trips:
-        cur.execute("SELECT name FROM trip_members WHERE trip_id=%s ORDER BY id", (t['id'],))
-        t['members'] = [m['name'] for m in cur.fetchall()]
-        cur.execute("SELECT COALESCE(SUM(amount_base),0) as total FROM trip_expenses WHERE trip_id=%s", (t['id'],))
-        t['total'] = float(cur.fetchone()['total'])
-        cur.execute("SELECT COUNT(*) as cnt FROM trip_expenses WHERE trip_id=%s", (t['id'],))
-        t['expense_count'] = cur.fetchone()['cnt']
-    conn.close()
-    return jsonify({"trips": [{**dict(t), 'created_at': str(t['created_at'])} for t in trips]})
+    try:
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("SELECT * FROM trips WHERE created_by=%s ORDER BY created_at DESC", (session['user_id'],))
+        trips = cur.fetchall()
+        for t in trips:
+            cur.execute("SELECT name FROM trip_members WHERE trip_id=%s ORDER BY id", (t['id'],))
+            t['members'] = [m['name'] for m in cur.fetchall()]
+            cur.execute("SELECT COALESCE(SUM(amount_base),0) as total FROM trip_expenses WHERE trip_id=%s", (t['id'],))
+            t['total'] = float(cur.fetchone()['total'] or 0)
+            cur.execute("SELECT COUNT(*) as cnt FROM trip_expenses WHERE trip_id=%s", (t['id'],))
+            t['expense_count'] = cur.fetchone()['cnt']
+        conn.close()
+        return jsonify({"trips": [{**dict(t), 'created_at': str(t.get('created_at', ''))} for t in trips]})
+    except Exception as e:
+        print(f"ERROR in get_trips: {e}")
+        import traceback; traceback.print_exc()
+        return jsonify({"trips": [], "error": str(e)}), 500
 
 @app.route('/api/trips', methods=['POST'])
 @login_required
@@ -399,58 +405,68 @@ def delete_trip(trip_id):
 @app.route('/api/trips/<trip_id>/expenses', methods=['GET'])
 @login_required
 def get_trip_expenses(trip_id):
-    conn = get_db(); cur = conn.cursor()
-    cur.execute("SELECT * FROM trips WHERE id=%s", (trip_id,))
-    trip = cur.fetchone()
-    if not trip: conn.close(); return jsonify({"error": "Trip not found"}), 404
-    cur.execute("SELECT name FROM trip_members WHERE trip_id=%s ORDER BY id", (trip_id,))
-    members = [m['name'] for m in cur.fetchall()]
-    cur.execute("SELECT * FROM trip_expenses WHERE trip_id=%s ORDER BY created_at DESC", (trip_id,))
-    expenses = cur.fetchall()
-    for e in expenses:
-        try: e['split_among'] = json.loads(e['split_among']) if e['split_among'] else members
-        except: e['split_among'] = members
-        if not e.get('amount_base'):
-            e['amount_base'] = convert_currency(float(e['amount']), e.get('currency', 'EUR'), trip['currency'])
-
-    # Calculate balances
-    balances = {m: 0.0 for m in members}
-    for e in expenses:
-        amt = float(e['amount_base'])
-        split_list = e['split_among'] if e['split_among'] else members
-        per_person = amt / len(split_list) if split_list else 0
-        balances[e['paid_by']] = balances.get(e['paid_by'], 0) + amt
-        for p in split_list:
-            balances[p] = balances.get(p, 0) - per_person
-
-    # Minimum settlements
-    debtors = [(m, -b) for m, b in balances.items() if b < -0.01]
-    creditors = [(m, b) for m, b in balances.items() if b > 0.01]
-    debtors.sort(key=lambda x: -x[1]); creditors.sort(key=lambda x: -x[1])
-    settlements = []; di, ci = 0, 0
-    while di < len(debtors) and ci < len(creditors):
-        debtor, debt = debtors[di]; creditor, credit = creditors[ci]
-        amt = min(debt, credit)
-        if amt > 0.01:
-            settlements.append({"from": debtor, "to": creditor, "amount": round(amt, 2)})
-        debtors[di] = (debtor, debt - amt); creditors[ci] = (creditor, credit - amt)
-        if debtors[di][1] < 0.01: di += 1
-        if creditors[ci][1] < 0.01: ci += 1
-    # Get settled payments
     try:
-        cur.execute("SELECT from_member,to_member,amount FROM settled_payments WHERE trip_id=%s", (trip_id,))
-        settled = [{"from": s['from_member'], "to": s['to_member'], "amount": float(s['amount'])} for s in cur.fetchall()]
-    except Exception:
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("SELECT * FROM trips WHERE id=%s", (trip_id,))
+        trip = cur.fetchone()
+        if not trip: conn.close(); return jsonify({"error": "Trip not found"}), 404
+        cur.execute("SELECT name FROM trip_members WHERE trip_id=%s ORDER BY id", (trip_id,))
+        members = [m['name'] for m in cur.fetchall()]
+        cur.execute("SELECT * FROM trip_expenses WHERE trip_id=%s ORDER BY created_at DESC", (trip_id,))
+        expenses = cur.fetchall()
+        for e in expenses:
+            try: e['split_among'] = json.loads(e['split_among']) if e['split_among'] else members
+            except: e['split_among'] = members
+            if not e.get('amount_base'):
+                try: e['amount_base'] = convert_currency(float(e['amount']), e.get('currency', 'EUR'), trip['currency'])
+                except: e['amount_base'] = float(e.get('amount', 0))
+
+        # Calculate balances
+        balances = {m: 0.0 for m in members}
+        for e in expenses:
+            amt = float(e.get('amount_base') or e.get('amount', 0))
+            split_list = e.get('split_among') or members
+            per_person = amt / len(split_list) if split_list else 0
+            paid_by = e.get('paid_by', '')
+            if paid_by in balances:
+                balances[paid_by] += amt
+            for p in split_list:
+                if p in balances:
+                    balances[p] -= per_person
+
+        # Minimum settlements
+        debtors = [(m, -b) for m, b in balances.items() if b < -0.01]
+        creditors = [(m, b) for m, b in balances.items() if b > 0.01]
+        debtors.sort(key=lambda x: -x[1]); creditors.sort(key=lambda x: -x[1])
+        settlements = []; di, ci = 0, 0
+        while di < len(debtors) and ci < len(creditors):
+            debtor, debt = debtors[di]; creditor, credit = creditors[ci]
+            amt = min(debt, credit)
+            if amt > 0.01:
+                settlements.append({"from": debtor, "to": creditor, "amount": round(amt, 2)})
+            debtors[di] = (debtor, debt - amt); creditors[ci] = (creditor, credit - amt)
+            if debtors[di][1] < 0.01: di += 1
+            if creditors[ci][1] < 0.01: ci += 1
+        # Get settled payments
         settled = []
-    conn.close()
-    return jsonify({
-        "trip": {**dict(trip), 'created_at': str(trip['created_at'])},
-        "members": members,
-        "expenses": [{**dict(e), 'created_at': str(e['created_at']), 'amount': float(e['amount']), 'amount_base': float(e['amount_base'])} for e in expenses],
-        "balances": {m: round(b, 2) for m, b in balances.items()},
-        "settlements": settlements,
-        "settled_payments": settled
-    })
+        try:
+            cur.execute("SELECT from_member,to_member,amount FROM settled_payments WHERE trip_id=%s", (trip_id,))
+            settled = [{"from": s['from_member'], "to": s['to_member'], "amount": float(s['amount'])} for s in cur.fetchall()]
+        except Exception as e:
+            print(f"settled_payments query failed (table may not exist): {e}")
+        conn.close()
+        return jsonify({
+            "trip": {**dict(trip), 'created_at': str(trip.get('created_at', ''))},
+            "members": members,
+            "expenses": [{**dict(e), 'created_at': str(e.get('created_at', '')), 'amount': float(e.get('amount', 0)), 'amount_base': float(e.get('amount_base') or e.get('amount', 0))} for e in expenses],
+            "balances": {m: round(b, 2) for m, b in balances.items()},
+            "settlements": settlements,
+            "settled_payments": settled
+        })
+    except Exception as e:
+        print(f"ERROR in get_trip_expenses: {e}")
+        import traceback; traceback.print_exc()
+        return jsonify({"error": str(e), "trip": {"name": "Error", "currency": "EUR", "created_at": ""}, "members": [], "expenses": [], "balances": {}, "settlements": [], "settled_payments": []}), 500
 
 @app.route('/api/trips/<trip_id>/expenses', methods=['POST'])
 @login_required
@@ -912,12 +928,13 @@ async function openTrip(id){
   currentTrip=id;document.getElementById('tripList').classList.add('hidden');document.querySelector('[onclick="showNewTrip()"]').style.display='none';document.getElementById('tripDetail').classList.remove('hidden');
   try{
   const r=await fetch('/api/trips/'+id+'/expenses');
-  if(!r.ok){document.getElementById('settlementsList').innerHTML='<div style="color:var(--red)">Failed to load trip</div>';return;}
   tripData=await r.json();
-  document.getElementById('detailName').textContent='✈️ '+tripData.trip.name+' ('+tripData.trip.currency+')';
-  const total=tripData.expenses.reduce((s,e)=>s+e.amount_base,0);
-  document.getElementById('detailTotal').textContent=tripData.trip.currency+' '+total.toFixed(2);
-  document.getElementById('detailPerPerson').textContent=tripData.trip.currency+' '+(total/Math.max(tripData.members.length,1)).toFixed(2);
+  if(tripData.error){console.error('API error:',tripData.error);}
+  if(!tripData.trip||!tripData.members){document.getElementById('settlementsList').innerHTML='<div style="color:var(--red);font-size:13px">Failed to load trip data</div>';return;}
+  document.getElementById('detailName').textContent='✈️ '+(tripData.trip.name||'Trip')+' ('+(tripData.trip.currency||'EUR')+')';
+  const total=(tripData.expenses||[]).reduce((s,e)=>s+(e.amount_base||0),0);
+  document.getElementById('detailTotal').textContent=(tripData.trip.currency||'EUR')+' '+total.toFixed(2);
+  document.getElementById('detailPerPerson').textContent=(tripData.trip.currency||'EUR')+' '+(total/Math.max((tripData.members||[]).length,1)).toFixed(2);
   // Settlements
   const sl=document.getElementById('settlementsList');
   const sa=document.getElementById('settleActions');
