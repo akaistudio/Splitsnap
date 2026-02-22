@@ -33,6 +33,34 @@ sys.stdout.reconfigure(line_buffering=True)
 def health():
     return 'ok'
 
+@app.route('/debug')
+def debug_info():
+    info = {"status": "ok", "tables": [], "errors": []}
+    try:
+        conn = get_db()
+        if not conn:
+            info["errors"].append("No DATABASE_URL")
+            return jsonify(info)
+        cur = conn.cursor()
+        cur.execute("SELECT table_name FROM information_schema.tables WHERE table_schema='public'")
+        info["tables"] = [r['table_name'] for r in cur.fetchall()]
+        # Check each table
+        for t in ['users', 'otp_codes', 'trips', 'trip_members', 'trip_expenses', 'settled_payments']:
+            try:
+                cur.execute(f"SELECT COUNT(*) as cnt FROM {t}")
+                info[t] = cur.fetchone()['cnt']
+            except Exception as e:
+                info["errors"].append(f"{t}: {e}")
+        # Check trips columns
+        try:
+            cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name='trips'")
+            info["trips_columns"] = [r['column_name'] for r in cur.fetchall()]
+        except: pass
+        conn.close()
+    except Exception as e:
+        info["errors"].append(str(e))
+    return jsonify(info)
+
 MODEL = os.environ.get('ANTHROPIC_MODEL', 'claude-sonnet-4-20250514')
 UPLOAD_DIR = Path('/tmp/splitsnap_uploads'); UPLOAD_DIR.mkdir(exist_ok=True)
 
@@ -904,10 +932,12 @@ label{font-size:12px;font-weight:600;color:var(--text2);display:block;margin-bot
 let currentTrip=null,tripData=null;
 
 async function loadTrips(){
-  try{const r=await fetch('/api/trips');const d=await r.json();const el=document.getElementById('tripList');
+  try{const r=await fetch('/api/trips');
+    if(!r.ok){document.getElementById('tripList').innerHTML='<div style="color:var(--red);text-align:center;padding:20px">API error: '+r.status+'</div>';return;}
+    const d=await r.json();const el=document.getElementById('tripList');
     if(!d.trips||!d.trips.length){el.innerHTML='<div style="text-align:center;padding:40px;color:var(--text2)"><div style="font-size:48px;margin-bottom:12px">✈️</div><div style="font-size:16px;font-weight:700;color:var(--text1);margin-bottom:6px">No trips yet</div><div style="font-size:13px">Create your first trip to start splitting expenses</div></div>';return;}
     el.innerHTML=d.trips.map(t=>'<div class="trip-card" onclick="openTrip(\\''+t.id+'\\')"><div style="display:flex;justify-content:space-between;align-items:flex-start"><div><div style="font-size:15px;font-weight:700;color:var(--text1)">✈️ '+t.name+'</div><div style="font-size:12px;color:var(--text2);margin-top:4px">'+t.members.join(', ')+' · '+t.currency+'</div></div><div style="text-align:right"><div style="font-size:16px;font-weight:700;color:var(--accent2)">'+t.currency+' '+t.total.toFixed(2)+'</div><div style="font-size:11px;color:var(--text2)">'+t.expense_count+' expenses</div></div></div></div>').join('');
-  }catch(e){document.getElementById('tripList').innerHTML='<div style="color:var(--red);text-align:center;padding:20px">Failed to load trips</div>';}
+  }catch(e){document.getElementById('tripList').innerHTML='<div style="color:var(--red);text-align:center;padding:20px">Error: '+e.message+'</div>';}
 }
 
 function showNewTrip(){document.getElementById('newTripForm').classList.remove('hidden');}
@@ -967,7 +997,7 @@ async function openTrip(id){
   const el=document.getElementById('expenseList');
   if(!tripData.expenses.length){el.innerHTML='<div style="text-align:center;padding:20px;color:var(--text2);font-size:13px">No expenses yet</div>';}
   else{el.innerHTML=tripData.expenses.map(e=>'<div class="card" style="padding:14px;margin-bottom:8px"><div style="display:flex;justify-content:space-between;align-items:flex-start"><div><div style="font-weight:600;font-size:14px">'+e.description+'</div><div style="font-size:12px;color:var(--text2);margin-top:2px">Paid by <strong>'+e.paid_by+'</strong>'+(e.date?' · '+e.date:'')+(e.currency!==tripData.trip.currency?' · '+e.currency+' '+e.amount.toFixed(2):'')+'</div></div><div style="text-align:right"><div style="font-weight:700;color:var(--accent2)">'+tripData.trip.currency+' '+e.amount_base.toFixed(2)+'</div><button class="btn btn-danger btn-sm" style="margin-top:6px;padding:4px 8px;font-size:10px" onclick="deleteExpense(\\''+e.id+'\\')">✕</button></div></div></div>').join('');}
-  }catch(err){console.error('openTrip error:',err);document.getElementById('settlementsList').innerHTML='<div style="color:var(--red);font-size:13px">Error loading trip details</div>';}
+  }catch(err){console.error('openTrip error:',err);document.getElementById('detailName').textContent='⚠️ Error';document.getElementById('settlementsList').innerHTML='<div style="color:var(--red);font-size:13px;padding:12px;background:rgba(255,0,0,0.1);border-radius:8px;word-break:break-all">Error: '+err.message+'<br><br>Try refreshing the page. If this persists, the app may still be deploying.</div>';}
 }
 
 async function addExpense(){
