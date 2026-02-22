@@ -79,6 +79,10 @@ def init_db():
         paid_by VARCHAR(255) NOT NULL, split_among TEXT DEFAULT '[]',
         date VARCHAR(20), category VARCHAR(100) DEFAULT 'General',
         created_at TIMESTAMP DEFAULT NOW())""")
+    cur.execute("""CREATE TABLE IF NOT EXISTS settled_payments (
+        id SERIAL PRIMARY KEY, trip_id VARCHAR(36) REFERENCES trips(id) ON DELETE CASCADE,
+        from_member TEXT NOT NULL, to_member TEXT NOT NULL, amount NUMERIC(12,2),
+        settled_at TIMESTAMP DEFAULT NOW())""")
     migrations = [
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_superadmin BOOLEAN DEFAULT FALSE",
         "UPDATE users SET is_superadmin = TRUE WHERE id = (SELECT MIN(id) FROM users)",
@@ -428,13 +432,17 @@ def get_trip_expenses(trip_id):
         debtors[di] = (debtor, debt - amt); creditors[ci] = (creditor, credit - amt)
         if debtors[di][1] < 0.01: di += 1
         if creditors[ci][1] < 0.01: ci += 1
+    # Get settled payments
+    cur.execute("SELECT from_member,to_member,amount FROM settled_payments WHERE trip_id=%s", (trip_id,))
+    settled = [{"from": s['from_member'], "to": s['to_member'], "amount": float(s['amount'])} for s in cur.fetchall()]
     conn.close()
     return jsonify({
         "trip": {**dict(trip), 'created_at': str(trip['created_at'])},
         "members": members,
         "expenses": [{**dict(e), 'created_at': str(e['created_at']), 'amount': float(e['amount']), 'amount_base': float(e['amount_base'])} for e in expenses],
         "balances": {m: round(b, 2) for m, b in balances.items()},
-        "settlements": settlements
+        "settlements": settlements,
+        "settled_payments": settled
     })
 
 @app.route('/api/trips/<trip_id>/expenses', methods=['POST'])
@@ -538,6 +546,84 @@ def scan_trip_receipt(trip_id):
         "description": vendor, "amount": amount, "amount_base": amount_base,
         "currency": exp_currency, "paid_by": paid_by, "category": data.get('category', 'Other'),
         "date": data.get('date', ''), "items": data.get('items', '')}})
+
+# ── Settlement Tracking ────────────────────────────────────────
+@app.route('/api/trips/<trip_id>/settle', methods=['POST'])
+@login_required
+def settle_payment(trip_id):
+    data = request.json or {}
+    from_m = data.get('from', '').strip()
+    to_m = data.get('to', '').strip()
+    amount = float(data.get('amount', 0))
+    if not from_m or not to_m or amount <= 0:
+        return jsonify({"error": "Invalid settlement"}), 400
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("INSERT INTO settled_payments (trip_id,from_member,to_member,amount) VALUES (%s,%s,%s,%s)",
+                (trip_id, from_m, to_m, amount))
+    conn.close()
+    return jsonify({"success": True})
+
+@app.route('/api/trips/<trip_id>/unsettle', methods=['POST'])
+@login_required
+def unsettle_payment(trip_id):
+    data = request.json or {}
+    from_m = data.get('from', '').strip()
+    to_m = data.get('to', '').strip()
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("DELETE FROM settled_payments WHERE trip_id=%s AND from_member=%s AND to_member=%s",
+                (trip_id, from_m, to_m))
+    conn.close()
+    return jsonify({"success": True})
+
+@app.route('/api/trips/<trip_id>/settle-all', methods=['POST'])
+@login_required
+def settle_all(trip_id):
+    """Mark all outstanding settlements as paid"""
+    conn = get_db(); cur = conn.cursor()
+    # Get current settlements
+    cur.execute("SELECT * FROM trips WHERE id=%s", (trip_id,))
+    trip = cur.fetchone()
+    if not trip: conn.close(); return jsonify({"error": "Not found"}), 404
+    cur.execute("SELECT name FROM trip_members WHERE trip_id=%s ORDER BY id", (trip_id,))
+    members = [m['name'] for m in cur.fetchall()]
+    cur.execute("SELECT * FROM trip_expenses WHERE trip_id=%s", (trip_id,))
+    expenses = cur.fetchall()
+    # Recalculate
+    balances = {m: 0.0 for m in members}
+    for e in expenses:
+        amt = float(e.get('amount_base') or e['amount'])
+        split_list = json.loads(e['split_among']) if e['split_among'] else members
+        per_person = amt / len(split_list) if split_list else 0
+        balances[e['paid_by']] = balances.get(e['paid_by'], 0) + amt
+        for p in split_list:
+            balances[p] = balances.get(p, 0) - per_person
+    debtors = [(m, -b) for m, b in balances.items() if b < -0.01]
+    creditors = [(m, b) for m, b in balances.items() if b > 0.01]
+    debtors.sort(key=lambda x: -x[1]); creditors.sort(key=lambda x: -x[1])
+    di, ci = 0, 0
+    while di < len(debtors) and ci < len(creditors):
+        debtor, debt = debtors[di]; creditor, credit = creditors[ci]
+        amt = min(debt, credit)
+        if amt > 0.01:
+            cur.execute("""INSERT INTO settled_payments (trip_id,from_member,to_member,amount)
+                          SELECT %s,%s,%s,%s WHERE NOT EXISTS
+                          (SELECT 1 FROM settled_payments WHERE trip_id=%s AND from_member=%s AND to_member=%s)""",
+                       (trip_id, debtor, creditor, round(amt,2), trip_id, debtor, creditor))
+        debtors[di] = (debtor, debt - amt); creditors[ci] = (creditor, credit - amt)
+        if debtors[di][1] < 0.01: di += 1
+        if creditors[ci][1] < 0.01: ci += 1
+    cur.execute("UPDATE trips SET settled=TRUE WHERE id=%s", (trip_id,))
+    conn.close()
+    return jsonify({"success": True})
+
+@app.route('/api/trips/<trip_id>/reset-settlements', methods=['POST'])
+@login_required
+def reset_settlements(trip_id):
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("DELETE FROM settled_payments WHERE trip_id=%s", (trip_id,))
+    cur.execute("UPDATE trips SET settled=FALSE WHERE id=%s", (trip_id,))
+    conn.close()
+    return jsonify({"success": True})
 
 # ── Admin Dashboard ────────────────────────────────────────────
 @app.route('/admin')
@@ -715,7 +801,7 @@ label{font-size:12px;font-weight:600;color:var(--text2);display:block;margin-bot
 .upload-zone{border:2px dashed var(--border);border-radius:12px;padding:24px;text-align:center;cursor:pointer;transition:.2s;position:relative}
 .upload-zone:hover{border-color:var(--accent);background:rgba(16,185,129,.03)}
 .upload-zone input{position:absolute;inset:0;opacity:0;cursor:pointer}
-.settlement-arrow{display:flex;align-items:center;gap:10px;padding:10px;background:rgba(16,185,129,.05);border-radius:8px;margin-bottom:6px;font-size:13px}
+.settlement-arrow{display:flex;align-items:center;gap:8px;padding:10px 12px;background:rgba(16,185,129,.05);border-radius:8px;margin-bottom:6px;font-size:13px;flex-wrap:wrap}
 .balance-bar{margin-bottom:8px}
 .balance-bar .bar{height:8px;border-radius:4px;transition:width .3s}
 </style></head><body>
@@ -757,7 +843,10 @@ label{font-size:12px;font-weight:600;color:var(--text2);display:block;margin-bot
 <div class="card"><div style="font-size:12px;font-weight:600;color:var(--text2);text-transform:uppercase">Per Person</div><div id="detailPerPerson" style="font-size:24px;font-weight:700;color:var(--text1);margin-top:4px"></div></div>
 </div>
 <div id="settlementsBox" style="background:linear-gradient(135deg,#1a1a2e,#16213e);border:1.5px solid var(--accent);border-radius:14px;padding:16px;margin-bottom:16px">
-<div style="font-size:13px;font-weight:700;color:var(--accent2);margin-bottom:10px">💸 Settle Up</div>
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+<div style="font-size:13px;font-weight:700;color:var(--accent2)">💸 Settle Up</div>
+<div id="settleActions"></div>
+</div>
 <div id="settlementsList"></div>
 </div>
 <div class="card" style="margin-bottom:16px">
@@ -777,7 +866,7 @@ label{font-size:12px;font-weight:600;color:var(--text2);display:block;margin-bot
 <div style="grid-column:1/-1"><label>Description *</label><input type="text" id="expDesc" placeholder="e.g. Dinner at O'Briens"></div>
 <div><label>Amount *</label><input type="number" id="expAmount" placeholder="45.00" min="0" step="0.01"></div>
 <div><label>Currency</label><select id="expCurrency"><option value="EUR">EUR</option><option value="USD">USD</option><option value="GBP">GBP</option><option value="INR">INR</option><option value="CAD">CAD</option><option value="MYR">MYR</option></select></div>
-<div><label>Paid By *</label><select id="expPaidBy"></select></div>
+<div><label>Paid By *</label><select id="expPaidBy" style="width:100%;padding:10px;background:var(--bg);border:1.5px solid var(--border);border-radius:8px;color:#fff;font-size:14px;font-family:inherit"></select></div>
 <div><label>Date</label><input type="date" id="expDate"></div>
 <div style="grid-column:1/-1"><label>Split Among</label><div id="splitCheckboxes" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px"></div></div>
 <div style="grid-column:1/-1;text-align:right"><button class="btn btn-primary btn-sm" onclick="addExpense()">Add Expense</button></div>
@@ -821,8 +910,25 @@ async function openTrip(id){
   document.getElementById('detailPerPerson').textContent=tripData.trip.currency+' '+(total/Math.max(tripData.members.length,1)).toFixed(2);
   // Settlements
   const sl=document.getElementById('settlementsList');
-  if(!tripData.settlements.length){sl.innerHTML='<div style="font-size:13px;color:var(--text2)">All settled! ✅</div>';}
-  else{sl.innerHTML=tripData.settlements.map(s=>'<div class="settlement-arrow"><span style="font-weight:700;color:var(--red)">'+s.from+'</span><span style="color:var(--text2)">→ pays '+tripData.trip.currency+' '+s.amount.toFixed(2)+' to →</span><span style="font-weight:700;color:var(--accent2)">'+s.to+'</span></div>').join('');}
+  const sa=document.getElementById('settleActions');
+  const settledSet=new Set((tripData.settled_payments||[]).map(s=>s.from+'→'+s.to));
+  const allSettled=!tripData.settlements.length || tripData.settlements.every(s=>settledSet.has(s.from+'→'+s.to));
+  
+  if(!tripData.settlements.length){
+    sl.innerHTML='<div style="text-align:center;padding:16px"><div style="font-size:32px;margin-bottom:8px">🎉</div><div style="font-size:15px;font-weight:700;color:var(--accent2)">All settled!</div><div style="font-size:12px;color:var(--text2);margin-top:4px">No outstanding payments</div></div>';
+    sa.innerHTML='';
+  } else if(allSettled){
+    sl.innerHTML='<div style="text-align:center;padding:16px"><div style="font-size:32px;margin-bottom:8px">✅</div><div style="font-size:15px;font-weight:700;color:var(--accent2)">Trip Settled!</div><div style="font-size:12px;color:var(--text2);margin-top:4px">All payments have been made</div></div>';
+    sa.innerHTML='<button class="btn btn-ghost btn-sm" style="font-size:11px;padding:4px 10px" onclick="resetSettlements()">Reset</button>';
+  } else {
+    sl.innerHTML=tripData.settlements.map(s=>{
+      const key=s.from+'→'+s.to;
+      const isPaid=settledSet.has(key);
+      return '<div class="settlement-arrow" style="'+(isPaid?'opacity:0.5;':'')+'"><span style="font-weight:700;color:var(--red)">'+s.from+'</span><span style="color:var(--text2);flex:1"> → pays <strong>'+tripData.trip.currency+' '+s.amount.toFixed(2)+'</strong> to </span><span style="font-weight:700;color:var(--accent2)">'+s.to+'</span>'+(isPaid?'<span style="color:var(--accent2);font-weight:700;margin-left:8px">✅ Paid</span><button class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:10px;margin-left:4px" onclick="unsettlePayment(\''+s.from+'\',\''+s.to+'\')">Undo</button>':'<button class="btn btn-primary btn-sm" style="padding:4px 12px;font-size:11px;margin-left:8px;white-space:nowrap" onclick="settlePayment(\''+s.from+'\',\''+s.to+'\','+s.amount+')">Mark Paid</button>')+'</div>';
+    }).join('');
+    const unpaidCount=tripData.settlements.filter(s=>!settledSet.has(s.from+'→'+s.to)).length;
+    sa.innerHTML=unpaidCount>1?'<button class="btn btn-primary btn-sm" style="font-size:11px;padding:4px 10px" onclick="settleAll()">Settle All</button>':'';
+  }
   // Balances
   const bb=document.getElementById('balanceBars');const maxBal=Math.max(...Object.values(tripData.balances).map(Math.abs),1);
   bb.innerHTML=Object.entries(tripData.balances).map(([m,b])=>{const pct=Math.abs(b)/maxBal*100;const color=b>=0?'var(--accent)':'var(--red)';return '<div class="balance-bar"><div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px"><span style="font-weight:600">'+m+'</span><span style="color:'+color+';font-weight:700">'+(b>=0?'+':'')+b.toFixed(2)+'</span></div><div style="background:var(--bg);border-radius:4px;overflow:hidden"><div class="bar" style="width:'+pct+'%;background:'+color+';height:8px"></div></div></div>';}).join('');
@@ -847,6 +953,25 @@ async function addExpense(){
 async function deleteExpense(id){
   if(!confirm('Delete this expense?'))return;
   await fetch('/api/trips/'+currentTrip+'/expenses/'+id,{method:'DELETE'});openTrip(currentTrip);
+}
+
+async function settlePayment(from_m,to_m,amount){
+  await fetch('/api/trips/'+currentTrip+'/settle',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({from:from_m,to:to_m,amount})});
+  openTrip(currentTrip);
+}
+async function unsettlePayment(from_m,to_m){
+  await fetch('/api/trips/'+currentTrip+'/unsettle',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({from:from_m,to:to_m})});
+  openTrip(currentTrip);
+}
+async function settleAll(){
+  if(!confirm('Mark all payments as settled?'))return;
+  await fetch('/api/trips/'+currentTrip+'/settle-all',{method:'POST'});
+  openTrip(currentTrip);
+}
+async function resetSettlements(){
+  if(!confirm('Reset all settlements? This will mark everything as unpaid again.'))return;
+  await fetch('/api/trips/'+currentTrip+'/reset-settlements',{method:'POST'});
+  openTrip(currentTrip);
 }
 
 // Receipt scan
