@@ -950,15 +950,11 @@ label{font-size:12px;font-weight:600;color:var(--text2);display:block;margin-bot
 
 <script>
 let currentTrip=null,tripData=null;
-let _dbgEl=null;function dbg(msg){if(!_dbgEl){_dbgEl=document.createElement('div');_dbgEl.style.cssText='position:fixed;bottom:0;left:0;right:0;max-height:120px;overflow-y:auto;background:#1a1a2e;color:#4ADE80;font-size:10px;font-family:monospace;padding:6px;z-index:9999;border-top:1px solid #333';document.body.appendChild(_dbgEl);}_dbgEl.innerHTML=new Date().toLocaleTimeString()+' '+msg+'<br>'+_dbgEl.innerHTML;}
 
 async function loadTrips(){
-  dbg('loadTrips called');
   try{const r=await fetch('/api/trips');
-    dbg('loadTrips status: '+r.status);
     if(!r.ok){document.getElementById('tripList').innerHTML='<div style="color:var(--red);text-align:center;padding:20px">API error: '+r.status+'</div>';return;}
     const d=await r.json();
-    dbg('trips count: '+(d.trips?d.trips.length:'null'));
     const el=document.getElementById('tripList');
     if(!d.trips||!d.trips.length){el.innerHTML='<div style="text-align:center;padding:40px;color:var(--text2)"><div style="font-size:48px;margin-bottom:12px">✈️</div><div style="font-size:16px;font-weight:700;color:var(--text1);margin-bottom:6px">No trips yet</div><div style="font-size:13px">Create your first trip to start splitting expenses</div></div>';return;}
     el.innerHTML=d.trips.map(t=>'<div class="trip-card" data-id="'+t.id+'"><div style="display:flex;justify-content:space-between;align-items:flex-start"><div><div style="font-size:15px;font-weight:700;color:var(--text1)">\u2708\ufe0f '+t.name+'</div><div style="font-size:12px;color:var(--text2);margin-top:4px">'+t.members.join(', ')+' \u00b7 '+t.currency+'</div></div><div style="text-align:right"><div style="font-size:16px;font-weight:700;color:var(--accent2)">'+t.currency+' '+t.total.toFixed(2)+'</div><div style="font-size:11px;color:var(--text2)">'+t.expense_count+' expenses</div></div></div></div>').join('');el.querySelectorAll('.trip-card').forEach(c=>c.onclick=()=>openTrip(c.dataset.id));
@@ -980,14 +976,10 @@ async function createTrip(){
 function backToList(){document.getElementById('tripDetail').classList.add('hidden');document.getElementById('tripList').classList.remove('hidden');document.querySelector('[onclick="showNewTrip()"]').style.display='';loadTrips();}
 
 async function openTrip(id){
-  dbg('openTrip: '+id);
   currentTrip=id;document.getElementById('tripList').classList.add('hidden');document.querySelector('[onclick="showNewTrip()"]').style.display='none';document.getElementById('tripDetail').classList.remove('hidden');
   try{
   const r=await fetch('/api/trips/'+id+'/expenses');
-  dbg('openTrip resp: '+r.status);
   tripData=await r.json();
-  dbg('trip='+JSON.stringify(tripData.trip?tripData.trip.name:'null')+' err='+JSON.stringify(tripData.error||'none'));
-  if(tripData.error){dbg('ERR: '+tripData.error);}
   if(!tripData.trip||!tripData.members){document.getElementById('settlementsList').innerHTML='<div style="color:var(--red);font-size:13px">Failed to load: '+(tripData.error||'no data')+'</div>';return;}
   document.getElementById('detailName').textContent='✈️ '+(tripData.trip.name||'Trip')+' ('+(tripData.trip.currency||'EUR')+')';
   const total=(tripData.expenses||[]).reduce((s,e)=>s+(e.amount_base||0),0);
