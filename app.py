@@ -166,7 +166,7 @@ def generate_otp():
 
 def send_otp_email(email, code, purpose='login'):
     resend_key = os.environ.get('RESEND_API_KEY', '')
-    from_email = os.environ.get('SMTP_FROM', 'onboarding@resend.dev')
+    from_email = os.environ.get('SMTP_FROM', 'noreply@usevarnam.com')
     purpose_text = 'login' if purpose == 'login' else 'verification'
     subject = f"Your SplitSnap {purpose_text} code: {code}"
     html = f"""<div style="font-family:sans-serif;max-width:400px;margin:0 auto;padding:24px">
