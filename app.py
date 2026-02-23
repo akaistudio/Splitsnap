@@ -175,7 +175,7 @@ def send_otp_email(email, code, purpose='login'):
         <div style="font-size:36px;font-weight:800;letter-spacing:8px;color:#1a1a2e;text-align:center;
                     padding:20px;background:#f0fdf4;border-radius:12px;margin:16px 0">{code}</div>
         <p style="color:#999;font-size:12px">This code expires in 5 minutes. Do not share it.</p>
-        <p style="color:#999;font-size:11px;margin-top:20px">Part of <a href="https://snapsuite.up.railway.app" style="color:#10b981">SnapSuite</a></p>
+        <p style="color:#999;font-size:11px;margin-top:20px">Part of <a href="https://snapsuite.up.railway.app" style="color:#10b981">Varnam Suite</a></p>
     </div>"""
 
     if not resend_key:
@@ -751,7 +751,7 @@ a{color:inherit;text-decoration:none}
 <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:22px"><div style="font-size:26px;margin-bottom:10px">✂️</div><div style="font-size:15px;font-weight:700;color:#fff;margin-bottom:6px">Custom Splits</div><div style="font-size:13px;color:var(--text2);line-height:1.6">Split equally among everyone, or select specific people. Paid by one, shared by some.</div></div>
 <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:22px"><div style="font-size:26px;margin-bottom:10px">🔒</div><div style="font-size:15px;font-weight:700;color:#fff;margin-bottom:6px">Secure OTP Login</div><div style="font-size:13px;color:var(--text2);line-height:1.6">No passwords to remember. Sign in with a 6-digit code sent to your email. Secure and simple.</div></div>
 </div></section>
-<div style="padding:40px 24px 80px;text-align:center;font-size:13px;color:var(--text2)">SplitSnap · Part of <a href="https://snapsuite.up.railway.app" style="color:var(--accent)">SnapSuite</a> · Built with Claude AI · Powered by Shakty.AI</div>
+<div style="padding:40px 24px 80px;text-align:center;font-size:13px;color:var(--text2)">SplitSnap · Part of <a href="https://snapsuite.up.railway.app" style="color:var(--accent)">Varnam Suite</a> · Built with Claude AI · Powered by Shakty.AI</div>
 </body></html>"""
 
 AUTH_HTML = """<!DOCTYPE html><html lang="en"><head>
