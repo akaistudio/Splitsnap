@@ -180,7 +180,7 @@ def send_otp_email(email, code, purpose='login'):
 
     if not resend_key:
         print(f"⚠️ RESEND_API_KEY not set. OTP for {email}: {code}")
-        return True
+        return False
 
     import requests as http_requests
     try:
@@ -197,11 +197,11 @@ def send_otp_email(email, code, purpose='login'):
         else:
             print(f"❌ Resend error {r.status_code}: {r.text}")
             print(f"💡 OTP for {email}: {code}")
-            return True
+            return False
     except Exception as e:
         print(f"❌ Email failed: {e}")
         print(f"💡 OTP for {email}: {code}")
-        return True
+        return False
 
 def login_required(f):
     @wraps(f)
@@ -333,7 +333,8 @@ def send_otp():
     conn.close()
     if send_otp_email(email, code, purpose):
         return jsonify({"success": True})
-    return jsonify({"error": "Failed to send email"}), 500
+    # Email failed - return code directly so user can still proceed
+    return jsonify({"success": True, "fallback_code": code, "email_failed": True})
 
 @app.route('/api/auth/verify-otp', methods=['POST'])
 def verify_otp():
@@ -835,9 +836,9 @@ function showAlert(msg,type){document.getElementById('alertBox').innerHTML='<div
 function showStep(id){document.querySelectorAll('.card').forEach(c=>c.classList.add('hidden'));document.getElementById(id).classList.remove('hidden');}
 function startTimer(cntId,timerId,resendId,sec){let r=sec;const el=document.getElementById(cntId);document.getElementById(timerId).classList.remove('hidden');document.getElementById(resendId).classList.add('hidden');el.textContent=r;const iv=setInterval(()=>{r--;el.textContent=r;if(r<=0){clearInterval(iv);document.getElementById(timerId).classList.add('hidden');document.getElementById(resendId).classList.remove('hidden');}},1000);}
 let loginEmailVal='',regData={};
-async function sendLoginOTP(){const email=document.getElementById('loginEmail').value.trim().toLowerCase();if(!email){showAlert('Enter email','error');return;}loginEmailVal=email;const btn=document.getElementById('loginSendBtn');btn.disabled=true;btn.innerHTML='<span class="spinner"></span>Sending...';try{const r=await fetch('/api/auth/send-otp',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,purpose:'login'})});const d=await r.json();if(d.success){document.getElementById('loginEmailDisplay').textContent=email;showStep('loginStep2');showAlert('Code sent to '+email,'success');startTimer('loginCountdown','loginTimer','loginResend',60);setTimeout(()=>document.querySelector('#loginStep2 .otp-digit').focus(),100);}else{showAlert(d.error||'Failed','error');}}catch(e){showAlert('Connection error','error');}btn.disabled=false;btn.innerHTML='Send Login Code';}
+async function sendLoginOTP(){const email=document.getElementById('loginEmail').value.trim().toLowerCase();if(!email){showAlert('Enter email','error');return;}loginEmailVal=email;const btn=document.getElementById('loginSendBtn');btn.disabled=true;btn.innerHTML='<span class="spinner"></span>Sending...';try{const r=await fetch('/api/auth/send-otp',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,purpose:'login'})});const d=await r.json();if(d.success){document.getElementById('loginEmailDisplay').textContent=email;showStep('loginStep2');if(d.fallback_code){showAlert('Email delivery unavailable. Your code: '+d.fallback_code,'success');}else{showAlert('Code sent to '+email,'success');}startTimer('loginCountdown','loginTimer','loginResend',60);setTimeout(()=>document.querySelector('#loginStep2 .otp-digit').focus(),100);}else{showAlert(d.error||'Failed','error');}}catch(e){showAlert('Connection error','error');}btn.disabled=false;btn.innerHTML='Send Login Code';}
 async function verifyLoginOTP(){const code=getOTP('loginOtpRow');if(code.length!==6){showAlert('Enter the full 6-digit code','error');return;}const btn=document.getElementById('loginVerifyBtn');btn.disabled=true;btn.innerHTML='<span class="spinner"></span>Verifying...';try{const r=await fetch('/api/auth/verify-otp',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:loginEmailVal,code,purpose:'login'})});const d=await r.json();if(d.success){window.location.href=d.redirect||'/app';}else{showAlert(d.error||'Invalid code','error');clearOTP('loginOtpRow');}}catch(e){showAlert('Connection error','error');}btn.disabled=false;btn.innerHTML='Sign In';}
-async function sendRegOTP(){const name=document.getElementById('regName').value.trim(),email=document.getElementById('regEmail').value.trim().toLowerCase(),cur=document.getElementById('regCurrency').value;if(!name){showAlert('Enter name','error');return;}if(!email){showAlert('Enter email','error');return;}regData={name,email,currency:cur};const btn=document.getElementById('regSendBtn');btn.disabled=true;btn.innerHTML='<span class="spinner"></span>Sending...';try{const r=await fetch('/api/auth/send-otp',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,purpose:'register'})});const d=await r.json();if(d.success){document.getElementById('regEmailDisplay').textContent=email;showStep('regStep2');showAlert('Code sent to '+email,'success');startTimer('regCountdown','regTimer','regResend',60);setTimeout(()=>document.querySelector('#regStep2 .otp-digit').focus(),100);}else{showAlert(d.error||'Failed','error');}}catch(e){showAlert('Connection error','error');}btn.disabled=false;btn.innerHTML='Send Verification Code';}
+async function sendRegOTP(){const name=document.getElementById('regName').value.trim(),email=document.getElementById('regEmail').value.trim().toLowerCase(),cur=document.getElementById('regCurrency').value;if(!name){showAlert('Enter name','error');return;}if(!email){showAlert('Enter email','error');return;}regData={name,email,currency:cur};const btn=document.getElementById('regSendBtn');btn.disabled=true;btn.innerHTML='<span class="spinner"></span>Sending...';try{const r=await fetch('/api/auth/send-otp',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,purpose:'register'})});const d=await r.json();if(d.success){document.getElementById('regEmailDisplay').textContent=email;showStep('regStep2');if(d.fallback_code){showAlert('Email delivery unavailable. Your code: '+d.fallback_code,'success');}else{showAlert('Code sent to '+email,'success');}startTimer('regCountdown','regTimer','regResend',60);setTimeout(()=>document.querySelector('#regStep2 .otp-digit').focus(),100);}else{showAlert(d.error||'Failed','error');}}catch(e){showAlert('Connection error','error');}btn.disabled=false;btn.innerHTML='Send Verification Code';}
 async function verifyRegOTP(){const code=getOTP('regOtpRow');if(code.length!==6){showAlert('Enter the full 6-digit code','error');return;}const btn=document.getElementById('regVerifyBtn');btn.disabled=true;btn.innerHTML='<span class="spinner"></span>Creating...';try{const r=await fetch('/api/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...regData,code})});const d=await r.json();if(d.success){window.location.href=d.redirect||'/app';}else{showAlert(d.error||'Failed','error');clearOTP('regOtpRow');}}catch(e){showAlert('Connection error','error');}btn.disabled=false;btn.innerHTML='Create Account';}
 </script></body></html>"""
 
