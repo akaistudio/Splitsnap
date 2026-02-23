@@ -22,8 +22,8 @@ except: fitz = None
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'splitsnap-prod-2026')
-app.permanent_session_lifetime = timedelta(days=30)
-app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Lax')
+app.permanent_session_lifetime = timedelta(days=90)
+app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Lax', PERMANENT_SESSION_LIFETIME=timedelta(days=90))
 
 # Force print to flush immediately (for Railway logs)
 import sys
