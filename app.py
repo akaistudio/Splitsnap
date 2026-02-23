@@ -961,7 +961,7 @@ async function loadTrips(){
     dbg('trips count: '+(d.trips?d.trips.length:'null'));
     const el=document.getElementById('tripList');
     if(!d.trips||!d.trips.length){el.innerHTML='<div style="text-align:center;padding:40px;color:var(--text2)"><div style="font-size:48px;margin-bottom:12px">✈️</div><div style="font-size:16px;font-weight:700;color:var(--text1);margin-bottom:6px">No trips yet</div><div style="font-size:13px">Create your first trip to start splitting expenses</div></div>';return;}
-    el.innerHTML=d.trips.map(t=>'<div class="trip-card" onclick="openTrip(\\''+t.id+'\\')"><div style="display:flex;justify-content:space-between;align-items:flex-start"><div><div style="font-size:15px;font-weight:700;color:var(--text1)">✈️ '+t.name+'</div><div style="font-size:12px;color:var(--text2);margin-top:4px">'+t.members.join(', ')+' · '+t.currency+'</div></div><div style="text-align:right"><div style="font-size:16px;font-weight:700;color:var(--accent2)">'+t.currency+' '+t.total.toFixed(2)+'</div><div style="font-size:11px;color:var(--text2)">'+t.expense_count+' expenses</div></div></div></div>').join('');
+    el.innerHTML=d.trips.map(t=>'<div class="trip-card" data-id="'+t.id+'"><div style="display:flex;justify-content:space-between;align-items:flex-start"><div><div style="font-size:15px;font-weight:700;color:var(--text1)">\u2708\ufe0f '+t.name+'</div><div style="font-size:12px;color:var(--text2);margin-top:4px">'+t.members.join(', ')+' \u00b7 '+t.currency+'</div></div><div style="text-align:right"><div style="font-size:16px;font-weight:700;color:var(--accent2)">'+t.currency+' '+t.total.toFixed(2)+'</div><div style="font-size:11px;color:var(--text2)">'+t.expense_count+' expenses</div></div></div></div>').join('');el.querySelectorAll('.trip-card').forEach(c=>c.onclick=()=>openTrip(c.dataset.id));
   }catch(e){document.getElementById('tripList').innerHTML='<div style="color:var(--red);text-align:center;padding:20px">Error: '+e.message+'</div>';}
 }
 
@@ -1006,10 +1006,10 @@ async function openTrip(id){
     sl.innerHTML='<div style="text-align:center;padding:16px"><div style="font-size:32px;margin-bottom:8px">✅</div><div style="font-size:15px;font-weight:700;color:var(--accent2)">Trip Settled!</div><div style="font-size:12px;color:var(--text2);margin-top:4px">All payments have been made</div></div>';
     sa.innerHTML='<button class="btn btn-ghost btn-sm" style="font-size:11px;padding:4px 10px" onclick="resetSettlements()">Reset</button>';
   } else {
-    sl.innerHTML=tripData.settlements.map(s=>{
+    sl.innerHTML=tripData.settlements.map((s,idx)=>{
       const key=s.from+'→'+s.to;
       const isPaid=settledSet.has(key);
-      return '<div class="settlement-arrow" style="'+(isPaid?'opacity:0.5;':'')+'"><span style="font-weight:700;color:var(--red)">'+s.from+'</span><span style="color:var(--text2);flex:1"> → pays <strong>'+tripData.trip.currency+' '+s.amount.toFixed(2)+'</strong> to </span><span style="font-weight:700;color:var(--accent2)">'+s.to+'</span>'+(isPaid?'<span style="color:var(--accent2);font-weight:700;margin-left:8px">✅ Paid</span><button class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:10px;margin-left:4px" onclick="unsettlePayment(\''+s.from+'\',\''+s.to+'\')">Undo</button>':'<button class="btn btn-primary btn-sm" style="padding:4px 12px;font-size:11px;margin-left:8px;white-space:nowrap" onclick="settlePayment(\''+s.from+'\',\''+s.to+'\','+s.amount+')">Mark Paid</button>')+'</div>';
+      return '<div class="settlement-arrow" style="'+(isPaid?'opacity:0.5;':'')+'"><span style="font-weight:700;color:var(--red)">'+s.from+'</span><span style="color:var(--text2);flex:1"> \u2192 pays <strong>'+tripData.trip.currency+' '+s.amount.toFixed(2)+'</strong> to </span><span style="font-weight:700;color:var(--accent2)">'+s.to+'</span>'+(isPaid?'<span style="color:var(--accent2);font-weight:700;margin-left:8px">\u2705 Paid</span><button class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:10px;margin-left:4px" onclick="unsettleIdx('+idx+')">Undo</button>':'<button class="btn btn-primary btn-sm" style="padding:4px 12px;font-size:11px;margin-left:8px;white-space:nowrap" onclick="settleIdx('+idx+')">Mark Paid</button>')+'</div>';
     }).join('');
     const unpaidCount=tripData.settlements.filter(s=>!settledSet.has(s.from+'→'+s.to)).length;
     sa.innerHTML=unpaidCount>1?'<button class="btn btn-primary btn-sm" style="font-size:11px;padding:4px 10px" onclick="settleAll()">Settle All</button>':'';
@@ -1024,7 +1024,7 @@ async function openTrip(id){
   // Expenses
   const el=document.getElementById('expenseList');
   if(!tripData.expenses.length){el.innerHTML='<div style="text-align:center;padding:20px;color:var(--text2);font-size:13px">No expenses yet</div>';}
-  else{el.innerHTML=tripData.expenses.map(e=>'<div class="card" style="padding:14px;margin-bottom:8px"><div style="display:flex;justify-content:space-between;align-items:flex-start"><div><div style="font-weight:600;font-size:14px">'+e.description+'</div><div style="font-size:12px;color:var(--text2);margin-top:2px">Paid by <strong>'+e.paid_by+'</strong>'+(e.date?' · '+e.date:'')+(e.currency!==tripData.trip.currency?' · '+e.currency+' '+e.amount.toFixed(2):'')+'</div></div><div style="text-align:right"><div style="font-weight:700;color:var(--accent2)">'+tripData.trip.currency+' '+e.amount_base.toFixed(2)+'</div><button class="btn btn-danger btn-sm" style="margin-top:6px;padding:4px 8px;font-size:10px" onclick="deleteExpense(\\''+e.id+'\\')">✕</button></div></div></div>').join('');}
+  else{el.innerHTML=tripData.expenses.map((e,ei)=>'<div class="card" style="padding:14px;margin-bottom:8px"><div style="display:flex;justify-content:space-between;align-items:flex-start"><div><div style="font-weight:600;font-size:14px">'+e.description+'</div><div style="font-size:12px;color:var(--text2);margin-top:2px">Paid by <strong>'+e.paid_by+'</strong>'+(e.date?' \u00b7 '+e.date:'')+(e.currency!==tripData.trip.currency?' \u00b7 '+e.currency+' '+e.amount.toFixed(2):'')+'</div></div><div style="text-align:right"><div style="font-weight:700;color:var(--accent2)">'+tripData.trip.currency+' '+e.amount_base.toFixed(2)+'</div><button class="btn btn-danger btn-sm" style="margin-top:6px;padding:4px 8px;font-size:10px" data-eidx="'+ei+'" onclick="deleteExpIdx('+ei+')">\u2715</button></div></div></div>').join('');}
   }catch(err){console.error('openTrip error:',err);document.getElementById('detailName').textContent='⚠️ Error';document.getElementById('settlementsList').innerHTML='<div style="color:var(--red);font-size:13px;padding:12px;background:rgba(255,0,0,0.1);border-radius:8px;word-break:break-all">Error: '+err.message+'<br><br>Try refreshing the page. If this persists, the app may still be deploying.</div>';}
 }
 
@@ -1040,15 +1040,18 @@ async function deleteExpense(id){
   if(!confirm('Delete this expense?'))return;
   await fetch('/api/trips/'+currentTrip+'/expenses/'+id,{method:'DELETE'});openTrip(currentTrip);
 }
+function deleteExpIdx(idx){var e=tripData.expenses[idx];if(e)deleteExpense(e.id);}
 
 async function settlePayment(from_m,to_m,amount){
   await fetch('/api/trips/'+currentTrip+'/settle',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({from:from_m,to:to_m,amount})});
   openTrip(currentTrip);
 }
+function settleIdx(idx){var s=tripData.settlements[idx];if(s)settlePayment(s.from,s.to,s.amount);}
 async function unsettlePayment(from_m,to_m){
   await fetch('/api/trips/'+currentTrip+'/unsettle',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({from:from_m,to:to_m})});
   openTrip(currentTrip);
 }
+function unsettleIdx(idx){var s=tripData.settlements[idx];if(s)unsettlePayment(s.from,s.to);}
 async function settleAll(){
   if(!confirm('Mark all payments as settled?'))return;
   await fetch('/api/trips/'+currentTrip+'/settle-all',{method:'POST'});
