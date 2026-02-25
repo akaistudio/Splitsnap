@@ -309,7 +309,7 @@ def auto_login():
     if not email:
         return redirect('/login')
     try:
-        conn = get_db(); cur = conn.cursor()
+        conn = get_db(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cur.execute('SELECT * FROM users WHERE email=%s', (email,))
         user = cur.fetchone()
         if not user:
@@ -319,16 +319,16 @@ def auto_login():
                 (email, name)
             )
             row = cur.fetchone()
-            user_id = row['id'] if hasattr(row, '__getitem__') else row[0]
+            user_id = row['id']
             if not conn.autocommit:
                 conn.commit()
         else:
-            user_id = user['id'] if hasattr(user, '__getitem__') else user[0]
+            user_id = user['id']
             name = user.get('name', '') if hasattr(user, 'get') else (user[2] if len(user) > 2 else '')
             name = name or email.split('@')[0]
         conn.close()
     except Exception as e:
-        print(f"SSO auto-login error: {e}")
+        import traceback; print(f"SSO auto-login error for {email}: {e}\n{traceback.format_exc()}")
         return redirect('/login')
     session.clear()
     session.update({'user_id': user_id, 'user_name': name})
