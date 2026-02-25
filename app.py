@@ -308,22 +308,28 @@ def auto_login():
     email = verify_sso_token(token)
     if not email:
         return redirect('/login')
-    conn = get_db(); cur = conn.cursor()
-    cur.execute('SELECT * FROM users WHERE email=%s', (email,))
-    user = cur.fetchone()
-    if not user:
-        name = email.split('@')[0]
-        cur.execute(
-            "INSERT INTO users (email, name, created_at) VALUES (%s,%s,NOW()) RETURNING id",
-            (email, name)
-        )
-        row = cur.fetchone()
-        user_id = row[0] if isinstance(row, tuple) else row['id']
-        conn.commit()
-    else:
-        user_id = user[0] if isinstance(user, tuple) else user['id']
-        name = (user[2] if isinstance(user, tuple) else user.get('name', '')) or email.split('@')[0]
-    conn.close()
+    try:
+        conn = get_db(); cur = conn.cursor()
+        cur.execute('SELECT * FROM users WHERE email=%s', (email,))
+        user = cur.fetchone()
+        if not user:
+            name = email.split('@')[0]
+            cur.execute(
+                "INSERT INTO users (email, name, created_at) VALUES (%s,%s,NOW()) RETURNING id",
+                (email, name)
+            )
+            row = cur.fetchone()
+            user_id = row['id'] if hasattr(row, '__getitem__') else row[0]
+            if not conn.autocommit:
+                conn.commit()
+        else:
+            user_id = user['id'] if hasattr(user, '__getitem__') else user[0]
+            name = user.get('name', '') if hasattr(user, 'get') else (user[2] if len(user) > 2 else '')
+            name = name or email.split('@')[0]
+        conn.close()
+    except Exception as e:
+        print(f"SSO auto-login error: {e}")
+        return redirect('/login')
     session.clear()
     session.update({'user_id': user_id, 'user_name': name})
     session.permanent = True
