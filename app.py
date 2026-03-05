@@ -29,9 +29,6 @@ app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Lax', P
 import sys
 sys.stdout.reconfigure(line_buffering=True)
 
-@app.route('/health')
-def health():
-    return 'ok'
 
 @app.route('/debug')
 def debug_info():
@@ -1230,55 +1227,6 @@ td{padding:10px;border-bottom:1px solid var(--border);color:var(--text)}
 <tr><td>{{ u.email }}</td><td>{{ u.name }}</td><td>{{ u.trip_count }}</td><td>{{ u.created_at.strftime('%Y-%m-%d') if u.created_at else '' }}</td><td>{% if u.is_superadmin %}<span class="badge">Admin</span>{% endif %}</td></tr>
 {% endfor %}</tbody></table></div>
 </div></body></html>"""
-
-# ── External API for FinanceSnap ────────────────────────────────
-@app.route('/api/trips/summary')
-def api_trips_summary():
-    """Summary of trips and spend for FinanceSnap dashboard."""
-    api_key = request.headers.get('X-API-Key', '')
-    if not api_key:
-        return jsonify({'error': 'API key required'}), 401
-    conn = get_db(); cur = conn.cursor()
-    cur.execute('SELECT * FROM users WHERE email=%s', (api_key,))
-    user = cur.fetchone()
-    if not user:
-        conn.close()
-        return jsonify({'error': 'Invalid API key'}), 401
-
-    # Get all trips created by this user
-    cur.execute('SELECT * FROM trips WHERE created_by=%s ORDER BY created_at DESC', (user['id'],))
-    trips = cur.fetchall()
-
-    result = []
-    total_spend = 0.0
-    for t in trips:
-        cur.execute('''SELECT COALESCE(SUM(amount_base), 0) as total,
-                       COUNT(*) as expense_count
-                       FROM trip_expenses WHERE trip_id=%s''', (t['id'],))
-        stats = cur.fetchone()
-        spend = float(stats['total'] or 0)
-        total_spend += spend
-        result.append({
-            'id': t['id'],
-            'name': t['name'],
-            'currency': t['currency'],
-            'settled': t.get('settled', False),
-            'created_at': t['created_at'].isoformat() if t.get('created_at') else '',
-            'total_spend': round(spend, 2),
-            'expense_count': stats['expense_count'],
-        })
-
-    conn.close()
-    return jsonify({
-        'trips': result,
-        'count': len(result),
-        'total_spend': round(total_spend, 2),
-        'currency': user.get('currency', 'EUR'),
-    })
-
-@app.route('/health')
-def health():
-    return jsonify({'status': 'ok', 'app': 'SplitSnap'})
 
 if __name__ == '__main__':
     app.run(debug=True, port=5007)
