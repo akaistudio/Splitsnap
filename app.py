@@ -757,12 +757,6 @@ def reset_settlements(trip_id):
     conn = get_db(); cur = conn.cursor()
     cur.execute("DELETE FROM settled_payments WHERE trip_id=%s", (trip_id,))
     cur.execute("UPDATE trips SET settled=FALSE WHERE id=%s", (trip_id,))
-@app.route('/api/trips/<trip_id>/reset-settlements', methods=['POST'])
-@login_required
-def reset_settlements(trip_id):
-    conn = get_db(); cur = conn.cursor()
-    cur.execute("DELETE FROM settled_payments WHERE trip_id=%s", (trip_id,))
-    cur.execute("UPDATE trips SET settled=FALSE WHERE id=%s", (trip_id,))
     conn.close()
     return jsonify({"success": True})
 
