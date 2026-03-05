@@ -861,7 +861,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 <h2>Create Account</h2><p class="sub">We'll send a 6-digit code to verify your email</p>
 <div class="fg"><label>Your Name</label><input type="text" id="regName" required placeholder="Your name"></div>
 <div class="fg"><label>Email</label><input type="email" id="regEmail" required placeholder="you@email.com"></div>
-<div class="fg"><label>Default Currency</label><select id="regCurrency"><option value="EUR" selected>🇪🇺 EUR</option><option value="USD">🇺🇸 USD</option><option value="GBP">🇬🇧 GBP</option><option value="INR">🇮🇳 INR</option><option value="CAD">🇨🇦 CAD</option><option value="MYR">🇲🇾 MYR</option></select></div>
+<div class="fg"><label>Default Currency</label><select id="regCurrency"><option value="EUR" selected>🇪🇺 EUR</option><option value="USD">🇺🇸 USD</option><option value="GBP">🇬🇧 GBP</option><option value="INR">🇮🇳 INR</option><option value="CAD">🇨🇦 CAD</option><option value="MYR">🇲🇾 MYR</option><option value="SGD">🇸🇬 SGD</option><option value="AUD">🇦🇺 AUD</option><option value="AED">🇦🇪 AED</option></select></div>
 <button class="btn" id="regSendBtn" onclick="sendRegOTP()">Send Verification Code</button>
 <div class="switch">Already have an account? <a href="/login">Sign in</a></div>
 </div>
@@ -958,7 +958,7 @@ label{font-size:12px;font-weight:600;color:var(--text2);display:block;margin-bot
 <div><label>Trip Name *</label><input type="text" id="tripName" placeholder="e.g. Ireland & Scotland 2026"></div>
 <div><label>Members * (comma separated)</label><input type="text" id="tripMembers" placeholder="e.g. Priya, Sarah, Mei, Lisa"></div>
 <div><label>Settle in (base currency)</label>
-<select id="tripCurrency"><option value="EUR" selected>🇪🇺 EUR</option><option value="USD">🇺🇸 USD</option><option value="GBP">🇬🇧 GBP</option><option value="INR">🇮🇳 INR</option><option value="CAD">🇨🇦 CAD</option><option value="MYR">🇲🇾 MYR</option><option value="AUD">🇦🇺 AUD</option></select>
+<select id="tripCurrency"><option value="EUR" selected>🇪🇺 EUR</option><option value="USD">🇺🇸 USD</option><option value="GBP">🇬🇧 GBP</option><option value="INR">🇮🇳 INR</option><option value="CAD">🇨🇦 CAD</option><option value="MYR">🇲🇾 MYR</option><option value="AUD">🇦🇺 AUD</option><option value="SGD">🇸🇬 SGD</option><option value="AED">🇦🇪 AED</option><option value="JPY">🇯🇵 JPY</option></select>
 <div style="font-size:11px;color:var(--text2);margin-top:4px">All expenses converted to this for settlements</div></div>
 <div style="display:flex;gap:10px;justify-content:flex-end">
 <button class="btn btn-ghost btn-sm" onclick="hideNewTrip()">Cancel</button>
@@ -999,7 +999,7 @@ label{font-size:12px;font-weight:600;color:var(--text2);display:block;margin-bot
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
 <div style="grid-column:1/-1"><label>Description *</label><input type="text" id="expDesc" placeholder="e.g. Dinner at O'Briens"></div>
 <div><label>Amount *</label><input type="number" id="expAmount" placeholder="45.00" min="0" step="0.01"></div>
-<div><label>Currency</label><select id="expCurrency"><option value="EUR">EUR</option><option value="USD">USD</option><option value="GBP">GBP</option><option value="INR">INR</option><option value="CAD">CAD</option><option value="MYR">MYR</option></select></div>
+<div><label>Currency</label><select id="expCurrency"><option value="EUR">EUR</option><option value="USD">USD</option><option value="GBP">GBP</option><option value="INR">INR</option><option value="CAD">CAD</option><option value="MYR">MYR</option><option value="SGD">SGD</option><option value="AUD">AUD</option><option value="AED">AED</option><option value="JPY">JPY</option></select></div>
 <div><label>Paid By *</label><select id="expPaidBy" style="width:100%;padding:10px;background:var(--bg);border:1.5px solid var(--border);border-radius:8px;color:#fff;font-size:14px;font-family:inherit"></select></div>
 <div><label>Date</label><input type="date" id="expDate"></div>
 <div style="grid-column:1/-1"><label>Split Among</label><div id="splitCheckboxes" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px"></div></div>
