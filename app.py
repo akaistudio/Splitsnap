@@ -463,6 +463,7 @@ def api_register():
                 (email, name, currency, is_admin))
     user_id = cur.fetchone()['id']; conn.close()
     session.update({'user_id': user_id, 'user_name': name}); session.permanent = True
+    register_with_hub(name, email, currency)
     return jsonify({"success": True, "redirect": "/app"})
 
 # ── Routes: Trip Management ────────────────────────────────────
@@ -756,8 +757,73 @@ def reset_settlements(trip_id):
     conn = get_db(); cur = conn.cursor()
     cur.execute("DELETE FROM settled_payments WHERE trip_id=%s", (trip_id,))
     cur.execute("UPDATE trips SET settled=FALSE WHERE id=%s", (trip_id,))
+@app.route('/api/trips/<trip_id>/reset-settlements', methods=['POST'])
+@login_required
+def reset_settlements(trip_id):
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("DELETE FROM settled_payments WHERE trip_id=%s", (trip_id,))
+    cur.execute("UPDATE trips SET settled=FALSE WHERE id=%s", (trip_id,))
     conn.close()
     return jsonify({"success": True})
+
+# ── FinanceSnap Integration ────────────────────────────────────
+def register_with_hub(user_name, email, currency):
+    try:
+        import requests as http_requests
+        hub = os.environ.get('FINANCESNAP_URL', 'https://snapsuite.up.railway.app')
+        http_requests.post(f'{hub}/api/register-company', json={
+            'app_name': 'SplitSnap', 'company_name': user_name,
+            'email': email, 'currency': currency,
+            'app_url': os.environ.get('SPLITSNAP_URL', 'https://splitsnap.up.railway.app')
+        }, timeout=5)
+    except: pass
+
+@app.route('/api/trips/summary')
+def api_trips_summary():
+    """External API for FinanceSnap — returns trip spending summary per user"""
+    api_key = request.headers.get('X-API-Key', '')
+    if not api_key:
+        return jsonify({'error': 'API key required'}), 401
+    conn = get_db()
+    if not conn:
+        return jsonify({'error': 'DB unavailable'}), 500
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute('SELECT * FROM users WHERE email=%s', (api_key,))
+    user = cur.fetchone()
+    if not user:
+        conn.close()
+        return jsonify({'error': 'Invalid API key'}), 401
+
+    # Return all trips this user created with totals
+    cur.execute("""
+        SELECT t.id, t.name, t.currency, t.settled, t.created_at,
+               COALESCE(SUM(e.amount_base), 0) as total_amount,
+               COUNT(e.id) as expense_count,
+               COUNT(DISTINCT m.id) as member_count
+        FROM trips t
+        LEFT JOIN trip_expenses e ON e.trip_id = t.id
+        LEFT JOIN trip_members m ON m.trip_id = t.id
+        WHERE t.created_by = %s
+        GROUP BY t.id, t.name, t.currency, t.settled, t.created_at
+        ORDER BY t.created_at DESC
+    """, (user['id'],))
+    trips = cur.fetchall()
+    conn.close()
+
+    result = []
+    for t in trips:
+        d = dict(t)
+        for k, v in d.items():
+            if hasattr(v, 'isoformat'):
+                d[k] = v.isoformat()
+        result.append(d)
+
+    total_spent = sum(float(t.get('total_amount', 0) or 0) for t in result)
+    return jsonify({'trips': result, 'count': len(result), 'total_spent': total_spent})
+
+@app.route('/health')
+def health():
+    return jsonify({'status': 'ok', 'app': 'SplitSnap'})
 
 # ── Admin Dashboard ────────────────────────────────────────────
 @app.route('/admin')
@@ -1170,6 +1236,55 @@ td{padding:10px;border-bottom:1px solid var(--border);color:var(--text)}
 <tr><td>{{ u.email }}</td><td>{{ u.name }}</td><td>{{ u.trip_count }}</td><td>{{ u.created_at.strftime('%Y-%m-%d') if u.created_at else '' }}</td><td>{% if u.is_superadmin %}<span class="badge">Admin</span>{% endif %}</td></tr>
 {% endfor %}</tbody></table></div>
 </div></body></html>"""
+
+# ── External API for FinanceSnap ────────────────────────────────
+@app.route('/api/trips/summary')
+def api_trips_summary():
+    """Summary of trips and spend for FinanceSnap dashboard."""
+    api_key = request.headers.get('X-API-Key', '')
+    if not api_key:
+        return jsonify({'error': 'API key required'}), 401
+    conn = get_db(); cur = conn.cursor()
+    cur.execute('SELECT * FROM users WHERE email=%s', (api_key,))
+    user = cur.fetchone()
+    if not user:
+        conn.close()
+        return jsonify({'error': 'Invalid API key'}), 401
+
+    # Get all trips created by this user
+    cur.execute('SELECT * FROM trips WHERE created_by=%s ORDER BY created_at DESC', (user['id'],))
+    trips = cur.fetchall()
+
+    result = []
+    total_spend = 0.0
+    for t in trips:
+        cur.execute('''SELECT COALESCE(SUM(amount_base), 0) as total,
+                       COUNT(*) as expense_count
+                       FROM trip_expenses WHERE trip_id=%s''', (t['id'],))
+        stats = cur.fetchone()
+        spend = float(stats['total'] or 0)
+        total_spend += spend
+        result.append({
+            'id': t['id'],
+            'name': t['name'],
+            'currency': t['currency'],
+            'settled': t.get('settled', False),
+            'created_at': t['created_at'].isoformat() if t.get('created_at') else '',
+            'total_spend': round(spend, 2),
+            'expense_count': stats['expense_count'],
+        })
+
+    conn.close()
+    return jsonify({
+        'trips': result,
+        'count': len(result),
+        'total_spend': round(total_spend, 2),
+        'currency': user.get('currency', 'EUR'),
+    })
+
+@app.route('/health')
+def health():
+    return jsonify({'status': 'ok', 'app': 'SplitSnap'})
 
 if __name__ == '__main__':
     app.run(debug=True, port=5007)
