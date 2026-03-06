@@ -293,6 +293,26 @@ def index():
     if 'user_id' in session: return redirect('/app')
     return redirect('/welcome')
 
+@app.route('/demo')
+def demo_login():
+    """One-click demo login."""
+    demo_email = 'demo@varnam.app'
+    conn = get_db(); cur = conn.cursor()
+    cur.execute('SELECT * FROM users WHERE email=%s', (demo_email,))
+    user = cur.fetchone()
+    if not user:
+        cur.execute("INSERT INTO users (email, name, currency, is_superadmin) VALUES (%s,%s,%s,%s) RETURNING id",
+                   (demo_email, 'Demo User', 'INR', True))
+        user_id = cur.fetchone()['id']
+        if not conn.autocommit: conn.commit()
+    else:
+        user_id = user['id']
+    session.clear()
+    session['user_id'] = user_id
+    session.permanent = True
+    conn.close()
+    return redirect('/')
+
 @app.route('/welcome')
 def welcome():
     return render_template_string(LANDING_HTML)
