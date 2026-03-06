@@ -295,18 +295,57 @@ def index():
 
 @app.route('/demo')
 def demo_login():
-    """One-click demo login."""
+    """One-click demo — shared account, reseeds every 24h."""
+    from datetime import datetime, timedelta
     demo_email = 'demo@varnam.app'
     conn = get_db(); cur = conn.cursor()
+    try:
+        cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS demo_reset_at TIMESTAMP")
+        if not conn.autocommit: conn.commit()
+    except: pass
     cur.execute('SELECT * FROM users WHERE email=%s', (demo_email,))
     user = cur.fetchone()
+    needs_seed = False
     if not user:
-        cur.execute("INSERT INTO users (email, name, currency, is_superadmin) VALUES (%s,%s,%s,%s) RETURNING id",
+        cur.execute("INSERT INTO users (email, name, currency, is_superadmin, demo_reset_at) VALUES (%s,%s,%s,%s,NOW()) RETURNING id",
                    (demo_email, 'Demo User', 'INR', True))
         user_id = cur.fetchone()['id']
         if not conn.autocommit: conn.commit()
+        needs_seed = True
     else:
         user_id = user['id']
+        last_reset = user.get('demo_reset_at')
+        if not last_reset or (datetime.utcnow() - last_reset.replace(tzinfo=None)) > timedelta(hours=24):
+            needs_seed = True
+    if needs_seed:
+        cur.execute("DELETE FROM trip_expenses WHERE trip_id IN (SELECT id FROM trips WHERE created_by=%s)", (user_id,))
+        cur.execute("DELETE FROM trip_members WHERE trip_id IN (SELECT id FROM trips WHERE created_by=%s)", (user_id,))
+        cur.execute("DELETE FROM settled_payments WHERE trip_id IN (SELECT id FROM trips WHERE created_by=%s)", (user_id,))
+        cur.execute("DELETE FROM trips WHERE created_by=%s", (user_id,))
+        cur.execute("UPDATE users SET demo_reset_at=NOW() WHERE id=%s", (user_id,))
+        # Seed a Goa trip
+        import uuid as _uuid
+        tid = str(_uuid.uuid4())
+        cur.execute("INSERT INTO trips (id,name,currency,created_by) VALUES (%s,'Goa Trip Jan 2026','INR',%s)", (tid, user_id))
+        members = ['Arjun','Sneha','Karthik','Priya']
+        for m in members:
+            cur.execute("INSERT INTO trip_members (trip_id,name) VALUES (%s,%s)", (tid,m))
+        cur.execute("SELECT id,name FROM trip_members WHERE trip_id=%s", (tid,))
+        mmap = {r['name']:r['id'] for r in cur.fetchall()}
+        expenses = [
+            ('Flight tickets','2026-01-10',12400,'Arjun',['Arjun','Sneha','Karthik','Priya']),
+            ('Hotel Airbnb','2026-01-10',18000,'Sneha',['Arjun','Sneha','Karthik','Priya']),
+            ('Scooter rental','2026-01-11',2400,'Karthik',['Arjun','Sneha','Karthik','Priya']),
+            ('Beach shack dinner','2026-01-11',3200,'Priya',['Arjun','Sneha','Karthik','Priya']),
+            ('Water sports','2026-01-12',5600,'Arjun',['Arjun','Sneha','Karthik']),
+            ('Groceries & drinks','2026-01-12',1800,'Sneha',['Arjun','Sneha','Karthik','Priya']),
+        ]
+        for desc,date,amt,paid_by,split_among in expenses:
+            eid = str(_uuid.uuid4())
+            split_ids = ','.join(str(mmap[m]) for m in split_among if m in mmap)
+            cur.execute("INSERT INTO trip_expenses (id,trip_id,description,amount,amount_base,currency,paid_by,split_among,date) VALUES (%s,%s,%s,%s,%s,'INR',%s,%s,%s)",
+                       (eid,tid,desc,amt,amt,str(mmap.get(paid_by,0)),split_ids,date))
+        if not conn.autocommit: conn.commit()
     session.clear()
     session['user_id'] = user_id
     session.permanent = True
