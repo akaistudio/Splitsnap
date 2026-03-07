@@ -1054,6 +1054,19 @@ label{font-size:12px;font-weight:600;color:var(--text2);display:block;margin-bot
 .settlement-arrow{display:flex;align-items:center;gap:8px;padding:10px 12px;background:rgba(16,185,129,.05);border-radius:8px;margin-bottom:6px;font-size:13px;flex-wrap:wrap}
 .balance-bar{margin-bottom:8px}
 .balance-bar .bar{height:8px;border-radius:4px;transition:width .3s}
+
+@media(max-width:768px){
+  .hdr{flex-wrap:wrap;gap:6px;padding:10px 14px}
+  .hdr-links{flex-wrap:wrap;gap:4px}
+  .content{padding:12px}
+  .card{padding:14px}
+  #newTripForm div[style*="grid-template-columns:1fr 1fr"]{display:grid!important;grid-template-columns:1fr!important}
+  .stats{grid-template-columns:repeat(2,1fr)!important}
+  input,select,textarea{font-size:16px!important}
+  .settlement-arrow{font-size:12px}
+  .btn{padding:8px 14px;font-size:13px}
+  h2{font-size:16px!important}
+}
 </style></head><body>
 {% if is_demo %}
 <div style="background:linear-gradient(135deg,#7c3aed,#4f46e5);padding:10px 20px;display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:13px;font-weight:600;color:#fff;position:sticky;top:0;z-index:200;flex-wrap:wrap">
