@@ -294,8 +294,12 @@ def index():
     return redirect('/welcome')
 
 @app.route('/demo')
+@app.route('/demo/reset')
 def demo_login():
     """One-click demo — shared account. Seed on first visit only."""
+    force_reseed = request.path == '/demo/reset' and request.args.get('key') == 'varnam2026'
+    if request.path == '/demo/reset' and not force_reseed:
+        return redirect('/demo')
     demo_email = 'demo@varnam.app'
     conn = get_db(); cur = conn.cursor()
     cur.execute('SELECT * FROM users WHERE email=%s', (demo_email,))
@@ -309,6 +313,8 @@ def demo_login():
         needs_seed = True
     else:
         user_id = user['id']
+        if force_reseed:
+            needs_seed = True
     if needs_seed:
         cur.execute("DELETE FROM trip_expenses WHERE trip_id IN (SELECT id FROM trips WHERE created_by=%s)", (user_id,))
         cur.execute("DELETE FROM trip_members WHERE trip_id IN (SELECT id FROM trips WHERE created_by=%s)", (user_id,))
@@ -910,7 +916,7 @@ a{color:inherit;text-decoration:none}
 <div style="display:inline-block;padding:6px 16px;background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.2);border-radius:20px;font-size:12px;font-weight:700;color:var(--accent);margin-bottom:20px">PART OF SNAPSUITE</div>
 <h1 style="font-size:clamp(32px,5vw,48px);font-weight:800;line-height:1.15;margin-bottom:16px;color:#fff">Split bills.<br><span style="background:linear-gradient(135deg,var(--accent),var(--purple));-webkit-background-clip:text;-webkit-text-fill-color:transparent">Settle smart.</span></h1>
 <p style="font-size:17px;color:var(--text2);line-height:1.7;margin-bottom:28px;max-width:560px;margin-left:auto;margin-right:auto">Like Splitwise — but with AI receipt scanning. Create a trip, add friends, snap receipts or add expenses manually. Auto-calculates who owes whom with minimum settlements. Multi-currency.</p>
-<a href="/register" style="display:inline-block;padding:16px 40px;background:linear-gradient(135deg,#10b981,#059669);color:#fff;border-radius:12px;font-size:16px;font-weight:700;box-shadow:0 4px 20px rgba(16,185,129,.3)">Start Splitting →</a>
+<a href="/register" style="display:inline-block;padding:16px 40px;background:linear-gradient(135deg,#10b981,#059669);color:#fff;border-radius:12px;font-size:16px;font-weight:700;box-shadow:0 4px 20px rgba(16,185,129,.3);margin-right:12px">Start Splitting →</a><a href="/demo" style="display:inline-block;padding:16px 40px;background:transparent;color:#10b981;border:1.5px solid #10b981;border-radius:12px;font-size:16px;font-weight:600">Try Demo →</a>
 </section>
 <section style="padding:40px 24px;max-width:900px;margin:0 auto">
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:16px">
