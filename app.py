@@ -295,34 +295,25 @@ def index():
 
 @app.route('/demo')
 def demo_login():
-    """One-click demo — shared account, reseeds every 24h."""
-    from datetime import datetime, timedelta
+    """One-click demo — shared account. Seed on first visit only."""
     demo_email = 'demo@varnam.app'
     conn = get_db(); cur = conn.cursor()
-    try:
-        cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS demo_reset_at TIMESTAMP")
-        if not conn.autocommit: conn.commit()
-    except: pass
     cur.execute('SELECT * FROM users WHERE email=%s', (demo_email,))
     user = cur.fetchone()
     needs_seed = False
     if not user:
-        cur.execute("INSERT INTO users (email, name, currency, is_superadmin, demo_reset_at) VALUES (%s,%s,%s,%s,NOW()) RETURNING id",
+        cur.execute("INSERT INTO users (email, name, currency, is_superadmin) VALUES (%s,%s,%s,%s) RETURNING id",
                    (demo_email, 'Demo User', 'INR', True))
         user_id = cur.fetchone()['id']
         if not conn.autocommit: conn.commit()
         needs_seed = True
     else:
         user_id = user['id']
-        last_reset = user.get('demo_reset_at')
-        if not last_reset or (datetime.utcnow() - last_reset.replace(tzinfo=None)) > timedelta(hours=24):
-            needs_seed = True
     if needs_seed:
         cur.execute("DELETE FROM trip_expenses WHERE trip_id IN (SELECT id FROM trips WHERE created_by=%s)", (user_id,))
         cur.execute("DELETE FROM trip_members WHERE trip_id IN (SELECT id FROM trips WHERE created_by=%s)", (user_id,))
         cur.execute("DELETE FROM settled_payments WHERE trip_id IN (SELECT id FROM trips WHERE created_by=%s)", (user_id,))
         cur.execute("DELETE FROM trips WHERE created_by=%s", (user_id,))
-        cur.execute("UPDATE users SET demo_reset_at=NOW() WHERE id=%s", (user_id,))
         # Seed a Goa trip
         import uuid as _uuid
         tid = str(_uuid.uuid4())
