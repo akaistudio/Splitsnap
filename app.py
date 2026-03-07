@@ -1071,7 +1071,7 @@ label{font-size:12px;font-weight:600;color:var(--text2);display:block;margin-bot
 </style></head><body>
 {% if is_demo %}
 <div style="background:linear-gradient(135deg,#7c3aed,#4f46e5);padding:10px 20px;display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:13px;font-weight:600;color:#fff;position:sticky;top:0;z-index:200;flex-wrap:wrap">
-  <span>🎭 Demo mode — Bloom Studio &nbsp;·&nbsp; <span style="font-weight:400;opacity:.85">Explore freely, nothing is saved permanently</span></span>
+  <span>🎭 Demo mode — Bloom Studio &nbsp;·&nbsp; <span style="font-weight:400;opacity:.85">Demo data in INR &nbsp;·&nbsp; CAD, SGD &amp; more available when you sign up</span></span>
   <div style="display:flex;gap:8px;flex-shrink:0">
     <a href="/demo/reset?key=varnam2026" style="padding:6px 14px;background:rgba(255,255,255,0.15);color:#fff;border-radius:6px;text-decoration:none;font-size:12px;font-weight:700">↺ Reset Demo</a>
     <a href="/register" style="padding:6px 14px;background:#fff;color:#4f46e5;border-radius:6px;text-decoration:none;font-size:12px;font-weight:700">Create Account →</a>
