@@ -408,13 +408,15 @@ def logout():
 def main_app():
     conn = get_db()
     is_admin = False
+    is_demo = False
     if conn:
         cur = conn.cursor()
-        cur.execute('SELECT is_superadmin FROM users WHERE id=%s', (session.get('user_id'),))
+        cur.execute('SELECT is_superadmin, email FROM users WHERE id=%s', (session.get('user_id'),))
         u = cur.fetchone()
         is_admin = u.get('is_superadmin', False) if u else False
+        is_demo = (u.get('email') == 'demo@varnam.app') if u else False
         conn.close()
-    return render_template_string(TOOL_HTML, is_admin=is_admin, user_name=session.get('user_name', ''))
+    return render_template_string(TOOL_HTML, is_admin=is_admin, user_name=session.get('user_name', ''), is_demo=is_demo)
 
 # ── Routes: OTP Auth ───────────────────────────────────────────
 @app.route('/api/auth/send-otp', methods=['POST'])
@@ -1053,6 +1055,15 @@ label{font-size:12px;font-weight:600;color:var(--text2);display:block;margin-bot
 .balance-bar{margin-bottom:8px}
 .balance-bar .bar{height:8px;border-radius:4px;transition:width .3s}
 </style></head><body>
+{% if is_demo %}
+<div style="background:linear-gradient(135deg,#7c3aed,#4f46e5);padding:10px 20px;display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:13px;font-weight:600;color:#fff;position:sticky;top:0;z-index:200;flex-wrap:wrap">
+  <span>🎭 Demo mode — Bloom Studio &nbsp;·&nbsp; <span style="font-weight:400;opacity:.85">Explore freely, nothing is saved permanently</span></span>
+  <div style="display:flex;gap:8px;flex-shrink:0">
+    <a href="/demo/reset?key=varnam2026" style="padding:6px 14px;background:rgba(255,255,255,0.15);color:#fff;border-radius:6px;text-decoration:none;font-size:12px;font-weight:700">↺ Reset Demo</a>
+    <a href="/register" style="padding:6px 14px;background:#fff;color:#4f46e5;border-radius:6px;text-decoration:none;font-size:12px;font-weight:700">Create Account →</a>
+  </div>
+</div>
+{% endif %}
 <div class="hdr">
 <h1>✂️ Split<span>Snap</span></h1>
 <div class="hdr-links">
