@@ -1067,6 +1067,7 @@ label{font-size:12px;font-weight:600;color:var(--text2);display:block;margin-bot
   .btn{padding:8px 14px;font-size:13px}
   h2{font-size:16px!important}
 }
+@media(max-width:400px){.stats{grid-template-columns:1fr!important}.hdr h1{font-size:18px}}
 </style></head><body>
 {% if is_demo %}
 <div style="background:linear-gradient(135deg,#7c3aed,#4f46e5);padding:10px 20px;display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:13px;font-weight:600;color:#fff;position:sticky;top:0;z-index:200;flex-wrap:wrap">
